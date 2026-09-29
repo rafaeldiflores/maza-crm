@@ -342,6 +342,7 @@
         <!-- Orden -->
         <select id="select-orden" onchange="loadTalleres()" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20" title="Ordenar resultados">
           <option value="pipeline">↕️ Orden del embudo</option>
+          <option value="puntaje_ia">🎯 Prioridad IA</option>
           <option value="fecha_creacion">🆕 Más recientes primero</option>
           <option value="fecha_creacion_asc">📜 Más antiguos primero</option>
           <option value="nombre">🔤 Nombre A-Z</option>
@@ -917,17 +918,9 @@
             <label class="text-xs text-slate-600 font-semibold">Máx por rubro:</label>
             <input type="number" id="scrape-max" value="10" min="1" max="50" class="w-16 rounded-lg border border-slate-200 p-1.5 text-xs text-center font-bold">
           </div>
-          <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-600 font-semibold" title="Búsquedas simultáneas en pestañas paralelas. Más rápido, pero más exigente para el equipo/red.">Velocidad:</label>
-            <select id="scrape-concurrency" class="rounded-lg border border-slate-200 p-1.5 text-xs font-bold">
-              <option value="1">Normal (1x)</option>
-              <option value="3" selected>Rápida (3x)</option>
-              <option value="5">Turbo (5x)</option>
-            </select>
-          </div>
-          <label class="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer">
-            <input type="checkbox" id="scrape-visual" class="rounded text-amber-600">
-            <span>Ver navegador en pantalla</span>
+          <label class="flex items-center gap-2 text-xs text-slate-600 font-medium cursor-pointer" title="Lee las reseñas de Google de cada taller nuevo y lo puntúa con Gemini (tiene un costo pequeño por taller).">
+            <input type="checkbox" id="scrape-evaluar-ia" class="rounded text-amber-600" checked>
+            <span>Priorizar los nuevos con IA</span>
           </label>
         </div>
 
@@ -1456,6 +1449,7 @@
                   ` : ''}
                 </div>
                 ${stars ? `<div class="font-bold text-amber-500 flex items-center gap-1 text-xs">${stars}</div>` : ''}
+                ${t.puntaje_ia != null ? `<div class="text-xs font-extrabold ${t.puntaje_ia >= 70 ? 'text-emerald-600' : t.puntaje_ia >= 40 ? 'text-amber-600' : 'text-slate-400'}" title="${(t.ia_motivo || '').replace(/"/g, '&quot;')}">🎯 ${t.puntaje_ia}</div>` : ''}
               </div>
 
               ${seguimientoBadgeHtml(t)}
@@ -1630,6 +1624,38 @@
     }
 
     // MODAL DE VISITA / REUNIÓN
+    // Evaluación con IA (Places + Gemini): puntaje, dolores y primer mensaje.
+    function pintarIa(t) {
+      let box = document.getElementById("modal-ia");
+      if (!box) {
+        box = document.createElement("div");
+        box.id = "modal-ia";
+        box.className = "mt-2";
+        document.getElementById("modal-taller-direccion").after(box);
+      }
+      const e = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+      if (t.puntaje_ia == null) {
+        box.innerHTML = t.place_id ? `<button onclick="evaluarIa(${t.id})" class="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-bold text-amber-800">🎯 Evaluar con IA</button>` : "";
+        return;
+      }
+      const wa = t.whatsapp_link && t.whatsapp_link !== "N/A" && t.ia_mensaje ? `${t.whatsapp_link.split("?")[0]}?text=${encodeURIComponent(t.ia_mensaje)}` : "";
+      box.innerHTML = `<div class="rounded-xl border border-amber-200 bg-amber-50/50 p-2 text-xs space-y-1">
+        <p><b>🎯 ${t.puntaje_ia}/100</b> · ${t.ia_calza ? "Calza con MAZA" : "No calza"}${t.ia_multirubro ? " · multirubro" : ""} — ${e(t.ia_motivo)}</p>
+        ${(t.ia_dolores || []).length ? `<p>Dolores: ${t.ia_dolores.map(e).join(" · ")}</p>` : ""}
+        ${t.ia_mensaje ? `<p class="italic text-slate-600">«${e(t.ia_mensaje)}»</p>` : ""}
+        <div class="flex gap-2">${wa ? `<a href="${wa}" target="_blank" rel="noopener" class="rounded-lg bg-emerald-600 px-2 py-1 font-bold text-white">Enviar este WhatsApp</a>` : ""}
+        <button onclick="evaluarIa(${t.id})" class="rounded-lg border border-slate-300 px-2 py-1">Reevaluar</button></div></div>`;
+    }
+
+    async function evaluarIa(id) {
+      const box = document.getElementById("modal-ia");
+      if (box) box.innerHTML = '<p class="text-xs text-slate-500">Leyendo reseñas y evaluando…</p>';
+      const res = await fetch(`/api/talleres/${id}/evaluar-ia`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) { if (box) box.innerHTML = `<p class="text-xs text-red-600">${data.detail || "Error"}</p>`; return; }
+      pintarIa(data.taller);
+    }
+
     async function openModalReunion(tallerId) {
       currentTallerId = tallerId;
       resetRecordingUI();
@@ -1645,6 +1671,7 @@
         document.getElementById("modal-rubro-badge").innerText = t.rubro;
         document.getElementById("modal-comuna-badge").innerText = t.comuna;
         document.getElementById("modal-taller-telefono").innerText = t.telefono || "No especificado";
+        pintarIa(t);
 
         const btnWa = document.getElementById("modal-btn-wa");
         if (t.whatsapp_link && t.whatsapp_link !== "N/A") {
@@ -2122,8 +2149,7 @@
       const comunasRaw = document.getElementById("scrape-comunas").value;
       const comunas = comunasRaw.split(",").map(c => c.trim()).filter(c => c);
       const maxVal = parseInt(document.getElementById("scrape-max").value) || 10;
-      const visual = document.getElementById("scrape-visual").checked;
-      const concurrency = parseInt(document.getElementById("scrape-concurrency").value) || 3;
+      const evaluarIa = document.getElementById("scrape-evaluar-ia").checked;
       const checkedRubros = Array.from(document.querySelectorAll("input[name='scrape-rubro']:checked")).map(el => el.value);
 
       if (comunas.length === 0) {
@@ -2133,7 +2159,7 @@
 
       const consoleBox = document.getElementById("scrape-console-box");
       consoleBox.classList.remove("hidden");
-      consoleBox.innerHTML = "<p>> Conectando con Google Maps...</p>";
+      consoleBox.innerHTML = "<p>> Buscando en Google Places...</p>";
       setScrapingUiRunning(true);
 
       try {
@@ -2144,8 +2170,7 @@
             comunas: comunas,
             rubros: checkedRubros,
             max_per_query: maxVal,
-            visual: visual,
-            concurrency: concurrency
+            evaluar_ia: evaluarIa
           })
         });
         const startData = await startRes.json();
@@ -2560,10 +2585,11 @@
     // gcloud), el servidor lo informa en /api/salud: se muestra acá en vez de
     // dejar la pantalla vacía.
     fetch('/api/salud').then((r) => r.json()).then((s) => {
+      if (s.admin === false) document.querySelectorAll('a[href="/cuentas"]').forEach((a) => a.remove());
       if (s.ok) return;
       const aviso = document.createElement('div');
       aviso.className = 'fixed top-0 inset-x-0 z-[100] bg-red-600 text-white text-sm font-semibold px-4 py-3 text-center';
-      aviso.textContent = 'No se pudo cargar el CRM: ' + s.error + ' Cierra el programa, corre «gcloud auth application-default login» y vuelve a abrirlo.';
+      aviso.textContent = 'No se pudo cargar el CRM: ' + s.error + ' Revisa las credenciales de Google del servidor.';
       document.body.prepend(aviso);
     }).catch(() => {});
   </script>

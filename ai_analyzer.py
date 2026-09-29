@@ -22,6 +22,30 @@ def analyze_meeting(taller_nombre: str, rubro: str, text: str) -> Dict[str, Any]
             "temperatura": "Indeterminada"
         }
 
+    # 0. Gemini en Vertex AI (credenciales de Google, sin API key).
+    if not os.environ.get("CRM_SIN_VERTEX"):
+        try:
+            import ia_prospectos
+            r = ia_prospectos._cliente().models.generate_content(
+                model=ia_prospectos.MODELO,
+                contents=f"""Eres el asesor comercial de MAZA (app de gestión para talleres multirubro en Chile).
+Analiza la visita al taller '{taller_nombre}' (rubro: {rubro}):
+
+\"\"\"{text}\"\"\"
+
+Responde en español neutro, breve, con exactamente este formato:
+- PERFIL: (1 línea sobre cómo opera)
+- DOLORES: (dolores reales del taller)
+- OBJECIONES: (dudas u objeciones del dueño)
+- ACUERDOS Y PRÓXIMO PASO: (qué se acordó y cuándo volver a contactar)
+- TEMPERATURA: (Frío / Tibio / Caliente)""",
+                config={"temperature": 0.3},
+            )
+            if r.text:
+                return parse_structured_report(r.text)
+        except Exception as e:
+            print(f"[AI] Error llamando a Vertex AI: {e}")
+
     # 1. Intentar con Groq si está disponible (rápido y gratuito)
     groq_key = os.environ.get("GROQ_API_KEY")
     if groq_key:

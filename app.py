@@ -20,6 +20,7 @@ from pydantic import BaseModel
 import db
 from config import PRESETS_ZONAS, RUBROS_MAP, WHATSAPP_TEMPLATES
 from ai_analyzer import analyze_meeting
+import maza_admin
 import maza_rutas
 
 # Cargar el CRM desde Firestore (ver db.py). Si no hay red o credenciales, el
@@ -37,7 +38,32 @@ app = FastAPI(title="MAZA - CRM & Prospección Regional de Talleres")
 # iniciar_crm.*) y no hay CORS, así que ninguna otra página del navegador
 # puede leer sus respuestas. TrustedHost corta el DNS rebinding (una página
 # ajena que resuelve su dominio a 127.0.0.1 llega con otro Host).
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+# En Cloud Run, CRM_HOSTS agrega el dominio del servicio (ej. "*.run.app").
+HOSTS = ["localhost", "127.0.0.1"] + [h.strip() for h in os.environ.get("CRM_HOSTS", "").split(",") if h.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=HOSTS)
+
+# Detrás de IAP (Cloud Run): IAP autentica con Google antes de llegar acá y
+# firma cada request. Se verifica la firma igual (defensa en profundidad: si
+# alguien llegara al servicio sin pasar por IAP, no trae un JWT válido).
+# IAP_AUDIENCIA = "/projects/<número>/locations/<región>/services/<servicio>".
+IAP_AUDIENCIA = os.environ.get("IAP_AUDIENCIA")
+# Solo estos correos gestionan cuentas de MAZA (/api/maza, /cuentas). El resto
+# de quienes pasen IAP (vendedores) usan el CRM de prospección.
+ADMINS = {e.strip().lower() for e in os.environ.get("CRM_ADMINS", "").split(",") if e.strip()}
+
+
+def _usuario_iap(request: Request) -> Optional[str]:
+    from google.auth.transport import requests as grequests
+    from google.oauth2 import id_token
+    token = request.headers.get("x-goog-iap-jwt-assertion")
+    if not token:
+        return None
+    try:
+        claims = id_token.verify_token(token, grequests.Request(), audience=IAP_AUDIENCIA,
+                                       certs_url="https://www.gstatic.com/iap/verify/public_key")
+        return (claims.get("email") or "").lower() or None
+    except Exception:
+        return None
 
 
 @app.middleware("http")
@@ -47,6 +73,14 @@ async def solo_desde_el_crm(request: Request, call_next):
     header propio (las páginas del CRM lo agregan en su fetch): un header no
     estándar obliga al navegador a pedir permiso (preflight), y sin CORS ese
     permiso nunca se da."""
+    if IAP_AUDIENCIA:
+        email = _usuario_iap(request)
+        if not email:
+            return JSONResponse({"detail": "Sesión no válida."}, status_code=401)
+        maza_admin.USUARIO.set(email)
+        ruta = request.url.path
+        if (ruta.startswith("/api/maza") or ruta == "/cuentas") and email not in ADMINS:
+            return JSONResponse({"detail": "Solo administradores."}, status_code=403)
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-maza-crm") != "1":
             return JSONResponse({"detail": "Falta el header X-Maza-CRM."}, status_code=403)
@@ -57,7 +91,9 @@ async def solo_desde_el_crm(request: Request, call_next):
 
 @app.get("/api/salud")
 def salud():
-    return {"ok": ERROR_INICIO is None, "error": ERROR_INICIO}
+    email = maza_admin.USUARIO.get()
+    return {"ok": ERROR_INICIO is None, "error": ERROR_INICIO, "usuario": email,
+            "admin": not IAP_AUDIENCIA or email in ADMINS}
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -116,8 +152,7 @@ class ScrapeRequest(BaseModel):
     comunas: List[str]
     rubros: List[str]
     max_per_query: int = 15
-    visual: bool = False
-    concurrency: int = 3
+    evaluar_ia: bool = True
 
 class TallerCreate(BaseModel):
     nombre: str
@@ -350,103 +385,74 @@ def generar_informe_reunion(reunion_id: int):
     return {"ok": True, "reporte": ai_report}
 
 # Lógica de Scraping en segundo plano (directa sin subprocesos para compatibilidad 100% con .exe)
-async def run_scraper_async(comunas: List[str], rubros_cods: List[str], max_per_query: int, visual: bool, concurrency: int = 3):
-    global scrape_state
-    scrape_state["running"] = True
-    scrape_state["stopping"] = False
-    scrape_state["stop_event"] = asyncio.Event()
-    scrape_state["logs"] = [f"Iniciando extracción para: {', '.join(comunas)}"]
+async def run_scraper_async(comunas: List[str], rubros_cods: List[str], max_per_query: int, evaluar_ia: bool = True):
+    """Rastreo con Places API (places.py): sin navegador, corre en Cloud Run.
+    Cada resultado se guarda al tiro; los talleres NUEVOS se evalúan con IA
+    (reseñas + Gemini) para ordenarlos por prioridad de contacto."""
+    import places
+    from config import RUBROS_MAP
+
+    scrape_state.update(running=True, stopping=False, stop_event=asyncio.Event(),
+                        logs=[f"Buscando en: {', '.join(comunas)}"])
     stop_event = scrape_state["stop_event"]
+    seleccion = [r for r in RUBROS_MAP.values() if r["codigo"] in rubros_cods] if rubros_cods else list(RUBROS_MAP.values())
+    jobs = [(c, r, q) for c in comunas for r in seleccion for q in r["queries"]]
+    nuevos_ids: List[int] = []
 
-    # Asegurar que Playwright encuentre Chromium en modo compilado .exe o en modo script
-    local_appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser(r"~\AppData\Local"))
-    system_browsers = Path(local_appdata) / "ms-playwright"
-    bundle_browsers = BASE_DIR / "_internal" / "playwright" / "driver" / "package" / ".local-browsers"
-
-    if bundle_browsers.exists() and any(bundle_browsers.glob("chromium*")):
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(bundle_browsers)
-    elif system_browsers.exists():
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(system_browsers)
-
-    from playwright.async_api import async_playwright
-    from config import BROWSER_CONFIG, RUBROS_MAP
-    from scraper import WorkshopScraper
-
-    selected_rubros = [r for r in RUBROS_MAP.values() if r["codigo"] in rubros_cods] if rubros_cods else list(RUBROS_MAP.values())
-    scraper = WorkshopScraper(headless=not visual, max_results_per_query=max_per_query, seen_keys=db.get_seen_keys())
-
-    jobs = [
-        {"query": query, "rubro_nombre": rubro["nombre"], "comuna": comuna}
-        for comuna in comunas
-        for rubro in selected_rubros
-        for query in rubro["queries"]
-    ]
-    total_queries = len(jobs)
-    done_count = 0
-    # Modo visible: una sola pestaña a la vez para no saturar la pantalla de ventanas.
-    effective_concurrency = 1 if visual else max(1, min(concurrency, 5))
-
-    async def on_job_done(job, res):
-        nonlocal done_count
-        done_count += 1
-        prefix = f"[{done_count}/{total_queries}] '{job['query']}' en {job['comuna']}"
-        if res:
-            # Guardar de inmediato en la base de datos SQLite
-            cnt = db.save_scraped_workshops(res)
-            scrape_state["logs"].append(f"{prefix} -> +{len(res)} talleres ({cnt} nuevos guardados)")
-        else:
-            scrape_state["logs"].append(f"{prefix} -> sin talleres nuevos (ya conocidos o sin resultados).")
-        if len(scrape_state["logs"]) > 50:
-            scrape_state["logs"] = scrape_state["logs"][-50:]
+    def log(msg):
+        scrape_state["logs"] = (scrape_state["logs"] + [msg])[-50:]
 
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=not visual)
-            context = await browser.new_context(**BROWSER_CONFIG)
+        for n, (comuna, rubro, consulta) in enumerate(jobs, 1):
+            if stop_event.is_set():
+                break
+            antes = set(t["id"] for t in db.get_talleres())
+            res = await asyncio.to_thread(lambda: [{**x, "Rubro": rubro["nombre"]} for x in places.buscar(consulta, comuna, max_per_query)])
+            cnt = await asyncio.to_thread(db.save_scraped_workshops, res)
+            nuevos_ids += [t["id"] for t in db.get_talleres() if t["id"] not in antes]
+            log(f"[{n}/{len(jobs)}] '{consulta}' en {comuna} -> {len(res)} talleres ({cnt} nuevos)")
 
-            scrape_state["logs"].append(
-                f"Procesando {total_queries} búsquedas con {effective_concurrency} pestañas en paralelo..."
-            )
-            await scraper.scrape_batch(context, jobs, concurrency=effective_concurrency, on_job_done=on_job_done, stop_event=stop_event)
+        if evaluar_ia and nuevos_ids and not stop_event.is_set():
+            log(f"Evaluando {len(nuevos_ids)} talleres nuevos con IA...")
+            for k, tid in enumerate(nuevos_ids[:80], 1):
+                if stop_event.is_set():
+                    break
+                try:
+                    await asyncio.to_thread(evaluar_taller_ia, tid)
+                except Exception as e:  # noqa: BLE001 — uno que falla no corta el resto
+                    log(f"IA: no se pudo evaluar el taller {tid}: {e}")
+                if k % 10 == 0:
+                    log(f"IA: {k}/{min(len(nuevos_ids), 80)} evaluados")
 
-            await browser.close()
-
-        if scraper.skipped_known_count > 0:
-            scrape_state["logs"].append(f"[i] {scraper.skipped_known_count} talleres ya conocidos se saltaron (sin re-procesar).")
-
-        if stop_event.is_set():
-            scrape_state["logs"].append("Extracción detenida por el usuario. Lo ya encontrado quedó guardado en el CRM.")
-
-        # Generar respaldo de exportación en Excel y CSV con lo recolectado hasta el momento
-        all_talleres = db.get_talleres()
-        if all_talleres:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            formatted = []
-            for t in all_talleres:
-                formatted.append({
-                    "Nombre": t["nombre"],
-                    "Rubro": t["rubro"],
-                    "Comuna": t["comuna"],
-                    "Teléfono": t["telefono"],
-                    "WhatsApp Link": t["whatsapp_link"],
-                    "Dirección": t["direccion"],
-                    "Calificación": t["calificacion"],
-                    "Opiniones": t["opiniones"],
-                    "Sitio Web": t["sitio_web"],
-                    "Google Maps": t["maps_url"],
-                    "Fecha Extracción": t["fecha_creacion"]
-                })
-            scraper.export_excel(formatted, EXPORTS_DIR / f"talleres_crm_{ts}.xlsx")
-            scraper.export_csv(formatted, EXPORTS_DIR / f"talleres_crm_{ts}.csv")
-
-        if not stop_event.is_set():
-            scrape_state["logs"].append("¡Extracción finalizada! Base de datos actualizada.")
+        log("Detenido: lo encontrado quedó guardado." if stop_event.is_set() else "¡Listo! Ordena por «Prioridad IA» para ver a quién llamar primero.")
     except Exception as e:
-        scrape_state["logs"].append(f"Error general: {e}")
+        log(f"Error general: {e}")
     finally:
         scrape_state["running"] = False
-        scrape_state["stopping"] = False
-        scrape_state["stop_event"] = None
+
+
+def evaluar_taller_ia(taller_id: int) -> dict:
+    import places
+    import ia_prospectos
+    t = db.get_taller_by_id(taller_id)
+    if not t:
+        raise HTTPException(status_code=404, detail="Taller no encontrado")
+    if not t.get("place_id"):
+        raise HTTPException(status_code=400, detail="Este taller no viene de Google Maps (sin place_id)")
+    datos = ia_prospectos.evaluar(t, places.detalle(t["place_id"]))
+    db.guardar_evaluacion_ia(taller_id, datos)
+    return datos
+
+
+@app.post("/api/talleres/{taller_id}/evaluar-ia")
+def evaluar_ia_endpoint(taller_id: int):
+    try:
+        return {"ok": True, "evaluacion": evaluar_taller_ia(taller_id), "taller": db.get_taller_by_id(taller_id)}
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"No se pudo evaluar: {e}")
+
 
 @app.post("/api/scrape/start")
 async def start_scraping(req: ScrapeRequest):
@@ -455,7 +461,7 @@ async def start_scraping(req: ScrapeRequest):
         return JSONResponse({"ok": False, "message": "Ya hay una extracción en curso"}, status_code=400)
 
     # Iniciar tarea asíncrona directamente en el event loop de FastAPI
-    asyncio.create_task(run_scraper_async(req.comunas, req.rubros, req.max_per_query, req.visual, req.concurrency))
+    asyncio.create_task(run_scraper_async(req.comunas, req.rubros, min(max(req.max_per_query, 1), 60), req.evaluar_ia))
     return {"ok": True, "message": "Extracción iniciada en segundo plano"}
 
 @app.post("/api/scrape/stop")
@@ -466,7 +472,7 @@ def stop_scraping():
     if scrape_state["stop_event"]:
         scrape_state["stop_event"].set()
     scrape_state["stopping"] = True
-    scrape_state["logs"].append("[!] Deteniendo extracción... se cerrará al terminar las fichas ya abiertas.")
+    scrape_state["logs"].append("[!] Deteniendo... termina la búsqueda en curso.")
     return {"ok": True, "message": "Deteniendo extracción..."}
 
 @app.get("/api/scrape/status")

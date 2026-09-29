@@ -21,6 +21,8 @@ if EMULADOR:
 
 PROYECTO = "demo-litoralbikes" if EMULADOR else "litoralbikes-7d29d"
 BUCKET = f"{PROYECTO}.firebasestorage.app"
+# Places y Vertex AI no tienen emulador: siempre el proyecto real.
+PROYECTO_REAL = "litoralbikes-7d29d"
 
 
 @lru_cache(maxsize=1)

@@ -18,6 +18,7 @@ MAZA_EMULADOR=1 apunta al emulador de Firebase (ver nube.py).
 """
 from __future__ import annotations
 
+import contextvars
 import os
 import shutil
 import subprocess
@@ -69,9 +70,18 @@ def _auth():
     return auth
 
 
-@lru_cache(maxsize=1)
+# Correo de quien hace el request (lo fija app.py desde IAP en Cloud Run).
+USUARIO: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("usuario", default=None)
+
+
 def actor() -> str:
-    """Quién hace los cambios, para la auditoría: la cuenta activa de gcloud."""
+    """Quién hace los cambios, para la auditoría: la sesión de IAP en Cloud
+    Run; en local, la cuenta activa de gcloud."""
+    return USUARIO.get() or _actor_local()
+
+
+@lru_cache(maxsize=1)
+def _actor_local() -> str:
     if EMULADOR:
         return "emulador"
     gcloud = shutil.which("gcloud") or shutil.which("gcloud.cmd")

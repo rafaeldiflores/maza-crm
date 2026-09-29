@@ -53,6 +53,9 @@ CAMPOS_TALLER = {
     "encargado_nombre": "", "observaciones": "", "fecha_creacion": None,
     "fecha_ultima_visita": None, "proximo_contacto": None, "fecha_inicio_prueba": "",
     "maza_uid": "",
+    # Places API + evaluación con IA (places.py, ia_prospectos.py)
+    "place_id": "", "puntaje_ia": None, "ia_calza": None, "ia_rubros": [], "ia_multirubro": None,
+    "ia_dolores": [], "ia_motivo": "", "ia_mensaje": "", "ia_evaluado_en": "",
 }
 CAMPOS_REUNION = {
     "taller_id": 0, "fecha": "", "tipo": "Presencial", "duracion_segundos": 0,
@@ -194,6 +197,20 @@ def _buscar_por_nombre_comuna(nombre: str, comuna: str) -> Optional[Dict[str, An
     return None
 
 
+def _buscar_por_place_id(place_id: str) -> Optional[Dict[str, Any]]:
+    if not place_id:
+        return None
+    with _lock:
+        for t in _talleres.values():
+            if t.get("place_id") == place_id:
+                return t
+    return None
+
+
+def guardar_evaluacion_ia(taller_id: int, datos: Dict[str, Any]) -> None:
+    _actualizar_taller_doc(int(taller_id), {**datos, "ia_evaluado_en": _ahora()})
+
+
 def _talleres_lista() -> List[Dict[str, Any]]:
     with _lock:
         return [dict(t) for t in _talleres.values()]
@@ -224,10 +241,11 @@ def save_scraped_workshops(workshops: List[Dict[str, Any]]) -> int:
             "maps_url": w.get("Google Maps", ""),
         }
 
-        existente = _buscar_por_nombre_comuna(nombre, comuna)
+        place_id = w.get("place_id", "")
+        existente = _buscar_por_place_id(place_id) or _buscar_por_nombre_comuna(nombre, comuna)
         if existente is None:
             creado = _crear_taller({
-                "nombre": nombre, "comuna": comuna, **nuevo,
+                "nombre": nombre, "comuna": comuna, **nuevo, "place_id": place_id,
                 "estado": "Por consultar", "fecha_creacion": now,
             })
             if creado is not None:
@@ -252,6 +270,8 @@ def save_scraped_workshops(workshops: List[Dict[str, Any]]) -> int:
             cambios["telefono"] = nuevo["telefono"]
         if nuevo["whatsapp_link"] not in ("", "N/A"):
             cambios["whatsapp_link"] = nuevo["whatsapp_link"]
+        if place_id:
+            cambios["place_id"] = place_id
         cambios = {k: v for k, v in cambios.items() if existente.get(k) != v}
         _actualizar_taller_doc(existente["id"], cambios)
 
@@ -274,6 +294,7 @@ SORTABLE_COLUMNS = {
     "nombre": {"column": "nombre", "default_dir": "asc"},
     "calificacion": {"column": "calificacion", "default_dir": "desc"},
     "proximo_contacto": {"column": "proximo_contacto", "default_dir": "asc"},
+    "puntaje_ia": {"column": "puntaje_ia", "default_dir": "desc"},
 }
 
 # Etapas en las que un taller sigue "activo" en el embudo (no cerrado
@@ -327,7 +348,7 @@ def get_talleres(
         rows.sort(key=lambda t: t["id"], reverse=True)
         con_valor = [t for t in rows if t.get(col) not in (None, "")]
         sin_valor = [t for t in rows if t.get(col) in (None, "")]
-        con_valor.sort(key=lambda t: str(t[col]), reverse=desc)
+        con_valor.sort(key=lambda t: t[col] if isinstance(t[col], (int, float)) else str(t[col]), reverse=desc)
         # Los valores vacíos siempre quedan al final, sin importar la dirección.
         rows = con_valor + sin_valor
     else:
