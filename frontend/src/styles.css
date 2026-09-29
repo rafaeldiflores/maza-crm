@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+/* Estilo de consola empresarial (Lightning): azul de marca, fondo gris,
+   tarjetas blancas con borde fino y radios chicos. */
+@theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-marca-50: #eef4ff;
+  --color-marca-100: #d8e6fe;
+  --color-marca-200: #aacbff;
+  --color-marca-400: #1b96ff;
+  --color-marca-500: #0176d3;
+  --color-marca-600: #0b5cab;
+  --color-marca-700: #014486;
+  --color-marca-800: #032d60;
+  --color-fondo: #f3f3f3;
+  --color-borde: #e5e5e5;
+}
+
+@layer base {
+  html, body { max-width: 100%; overflow-x: hidden; }
+  body { background: var(--color-fondo); color: #181818; font-family: var(--font-sans); font-size: 14px; -webkit-font-smoothing: antialiased; }
+  button { cursor: pointer; }
+}
+
+@layer components {
+  .tarjeta { border-radius: .5rem; border: 1px solid var(--color-borde); background: #fff; box-shadow: 0 2px 2px 0 rgba(0,0,0,.08); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .375rem; border-radius: .375rem; border: 1px solid #c9c9c9;
+    background: #fff; padding: .375rem .75rem; font-size: .75rem; font-weight: 600; color: var(--color-marca-500); white-space: nowrap; }
+  .btn:hover { background: #f3f3f3; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-primario { border-color: var(--color-marca-500); background: var(--color-marca-500); color: #fff; }
+  .btn-primario:hover { background: var(--color-marca-600); }
+  .btn-peligro { border-color: #dc2626; background: #dc2626; color: #fff; }
+  .btn-peligro:hover { background: #b91c1c; }
+  .btn-wa { border-color: #059669; background: #059669; color: #fff; }
+  .btn-wa:hover { background: #047857; }
+  .campo { width: 100%; border-radius: .375rem; border: 1px solid #c9c9c9; background: #fff; padding: .5rem .75rem; font-size: .875rem; }
+  .campo:focus { outline: none; border-color: var(--color-marca-500); box-shadow: 0 0 0 3px rgb(1 118 211 / .2); }
+  .etiqueta { display: block; margin-bottom: .25rem; font-size: .75rem; font-weight: 600; color: #475569; }
+  .insignia { display: inline-flex; align-items: center; border-radius: 9999px; border-width: 1px; padding: .125rem .5rem; font-size: 11px; font-weight: 700; }
+  .titulo-seccion { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: #64748b; }
+
+  /* Barra de etapas del embudo (path) */
+  .etapas { display: flex; gap: 2px; overflow-x: auto; padding: 4px 0; }
+  .etapas button { flex: 1 0 auto; min-width: 6rem; height: 2rem; padding: 0 1rem; white-space: nowrap; background: #ecebea; color: #475569;
+    font-size: 11.5px; font-weight: 600; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%); }
+  .etapas button:first-child { clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%); border-radius: 16px 0 0 16px; }
+  .etapas button.hecha { background: #3ba755; color: #fff; }
+  .etapas button.actual { background: var(--color-marca-800); color: #fff; }
+  .etapas button.actual.descartado { background: #b91c1c; }
+  .etapas button:not(.actual):hover { background: var(--color-marca-500); color: #fff; }
+}
+
+@keyframes onda { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+.onda { animation: onda 1s infinite ease-in-out; }

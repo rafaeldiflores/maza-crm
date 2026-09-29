@@ -102,11 +102,6 @@ else:
     BASE_DIR = Path(__file__).parent
     BUNDLE_DIR = BASE_DIR
 
-TEMPLATES_DIR = BUNDLE_DIR / "templates"
-if not TEMPLATES_DIR.exists():
-    TEMPLATES_DIR = BASE_DIR / "templates"
-TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-
 STATIC_DIR = BUNDLE_DIR / "static"
 if not STATIC_DIR.exists():
     STATIC_DIR = BASE_DIR / "static"
@@ -163,20 +158,6 @@ class TallerCreate(BaseModel):
 
 app.include_router(maza_rutas.router)
 
-
-@app.get("/cuentas", response_class=HTMLResponse)
-async def serve_cuentas():
-    with open(TEMPLATES_DIR / "cuentas.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
-
-
-@app.get("/", response_class=HTMLResponse)
-async def serve_index():
-    index_file = TEMPLATES_DIR / "index.html"
-    if not index_file.exists():
-        return HTMLResponse("<h1>Error: Plantilla no encontrada</h1>", status_code=500)
-    with open(index_file, "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
 
 @app.get("/api/presets")
 def get_presets():
@@ -522,3 +503,25 @@ if __name__ == "__main__":
     print(" Abre en tu navegador: http://localhost:8000")
     print("="*60 + "\n")
     uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+
+
+# ─── Interfaz (Angular) ───────────────────────────────────────────────────────
+# El build de frontend/ (en Docker, /app/web). Cualquier ruta que no sea /api
+# ni un archivo existente devuelve index.html: el router de Angular la resuelve.
+# index.html y el service worker van sin caché para que un deploy llegue al tiro.
+WEB_DIR = Path(os.environ.get("CRM_WEB_DIR", BASE_DIR / "frontend" / "dist" / "frontend" / "browser"))
+SIN_CACHE = {"index.html", "ngsw.json", "ngsw-worker.js", "manifest.webmanifest"}
+
+
+@app.get("/{ruta:path}", include_in_schema=False)
+def interfaz(ruta: str):
+    if ruta.startswith("api/"):
+        raise HTTPException(status_code=404)
+    archivo = (WEB_DIR / ruta).resolve()
+    if ruta and archivo.is_file() and WEB_DIR.resolve() in archivo.parents:
+        headers = {"Cache-Control": "no-cache"} if archivo.name in SIN_CACHE else {"Cache-Control": "public, max-age=31536000, immutable"}
+        return FileResponse(archivo, headers=headers)
+    indice = WEB_DIR / "index.html"
+    if not indice.exists():
+        raise HTTPException(status_code=503, detail="Falta el build de la interfaz (cd frontend && npx ng build)")
+    return FileResponse(indice, headers={"Cache-Control": "no-cache"})
