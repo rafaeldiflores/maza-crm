@@ -8,6 +8,7 @@ export interface Parada {
   comuna: string;
   lat: number | null;
   lng: number | null;
+  placeId?: string;
   estado: 'pendiente' | 'visitado' | 'saltado';
   /** Registro de la visita rápida, para poder deshacerla. */
   reunionId?: number;
@@ -25,7 +26,10 @@ function distancia(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
   return 2 * r * Math.asin(Math.sqrt(h));
 }
 
-const direccion = (p: Parada) => encodeURIComponent(`${p.direccion}, ${p.comuna}, Chile`);
+/** Con el nombre adelante Maps rotula la parada con el taller y no con "A, B, C". */
+const texto = (p: Parada) => `${p.nombre}, ${p.direccion}, ${p.comuna}, Chile`;
+/** La app de Maps en el celular acepta como máximo 3 paradas intermedias por link. */
+const MAX_INTERMEDIAS = 3;
 
 /**
  * Ruta del día en curso: el orden óptimo como checklist. Se guarda en el
@@ -61,15 +65,33 @@ export class RutaEnCurso {
     this.vigilar();
   }
 
-  /** Link de Maps con las paradas pendientes en orden, desde la posición dada. */
+  /**
+   * Link de Maps (formato api=1, el único que la app respeta con varias paradas)
+   * con el próximo tramo de pendientes: hasta 3 intermedias + destino. Sin
+   * origin, Maps parte de la ubicación actual. La vuelta solo entra si el
+   * tramo alcanza a cubrir todo lo que falta.
+   */
   urlMaps(desde?: { lat: number; lng: number }, soloHasta?: Parada) {
     const r = this.ruta();
     if (!r) return null;
-    const lista = soloHasta ? [soloHasta] : this.pendientes();
-    const inicio = desde ? `${desde.lat},${desde.lng}` : '';
-    const vuelta = !soloHasta && r.volver && desde ? '/' + inicio : '';
-    return `https://www.google.com/maps/dir/${inicio}/${lista.map(direccion).join('/')}${vuelta}`;
+    const pend = soloHasta ? [soloHasta] : this.pendientes();
+    if (!pend.length) return null;
+    const vuelta = !soloHasta && r.volver && desde && pend.length <= MAX_INTERMEDIAS;
+    const tramo = vuelta ? pend : pend.slice(0, MAX_INTERMEDIAS + 1);
+    const intermedias = vuelta ? tramo : tramo.slice(0, -1);
+    const destino = vuelta ? null : tramo[tramo.length - 1];
+    const q = new URLSearchParams({ api: '1', travelmode: 'driving' });
+    q.set('destination', destino ? texto(destino) : `${desde!.lat},${desde!.lng}`);
+    if (destino?.placeId) q.set('destination_place_id', destino.placeId);
+    if (intermedias.length) {
+      q.set('waypoints', intermedias.map(texto).join('|'));
+      if (intermedias.every((p) => p.placeId)) q.set('waypoint_place_ids', intermedias.map((p) => p.placeId).join('|'));
+    }
+    return `https://www.google.com/maps/dir/?${q}`;
   }
+
+  /** Cuántas pendientes quedan fuera del link actual (tope de Maps en el celular). */
+  fueraDelTramo() { return Math.max(0, this.pendientes().length - (MAX_INTERMEDIAS + 1)); }
 
   async marcar(p: Parada, estado: 'visitado' | 'saltado') {
     let reunionId: number | undefined;
@@ -110,17 +132,26 @@ export class RutaEnCurso {
         const porId = new Map(pend.map((p) => [p.id, p]));
         const nuevas = o.ids.map((id, i) => ({ ...porId.get(id)!, lat: o.coords[i]?.lat ?? porId.get(id)!.lat, lng: o.coords[i]?.lng ?? porId.get(id)!.lng }));
         this.guardar({ ...r, km: o.km, minutos: o.minutos, paradas: [...r.paradas.filter((p) => p.estado !== 'pendiente'), ...nuevas] });
-        window.open(this.urlMaps(desde)!, '_blank', 'noopener');
+        this.abrirUrl(desde);
       } catch (e) { this.sesion.avisar(mensajeError(e), false); }
       ok();
     }, () => { this.sesion.avisar('Permite el acceso a tu ubicación', false); ok(); }, { enableHighAccuracy: true, timeout: 15000 }));
   }
 
   abrirMaps(hasta?: Parada) {
+    const fuera = hasta ? 0 : this.fueraDelTramo();
+    if (fuera) this.sesion.avisar(`Maps muestra las próximas ${MAX_INTERMEDIAS + 1}; quedan ${fuera} para el siguiente tramo`);
     navigator.geolocation.getCurrentPosition(
       (pos) => window.open(this.urlMaps({ lat: pos.coords.latitude, lng: pos.coords.longitude }, hasta)!, '_blank', 'noopener'),
       () => window.open(this.urlMaps(undefined, hasta)!, '_blank', 'noopener'),
       { timeout: 8000 });
+  }
+
+  /** Abre el tramo desde una posición ya conocida (tras optimizar). */
+  abrirUrl(desde: { lat: number; lng: number }) {
+    const fuera = this.fueraDelTramo();
+    if (fuera) this.sesion.avisar(`Maps muestra las próximas ${MAX_INTERMEDIAS + 1}; quedan ${fuera} para el siguiente tramo`);
+    window.open(this.urlMaps(desde)!, '_blank', 'noopener');
   }
 
   private vigilar() {

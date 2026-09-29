@@ -49,6 +49,7 @@ import { FichaTaller } from '../prospectos/ficha-taller';
             }
           </div>
           <div class="sticky bottom-0 flex flex-wrap gap-2 border-t border-borde bg-white p-3">
+            <button class="btn" [disabled]="!r.pendientes().length" (click)="r.abrirMaps()">🗺️ Siguiente tramo</button>
             <button class="btn-primario btn flex-1" [disabled]="!r.pendientes().length || ocupado()" (click)="reoptimizar()">{{ ocupado() ? 'Calculando…' : 'Reoptimizar desde aquí' }}</button>
             <button class="btn !text-red-700" (click)="terminar()">Terminar ruta</button>
           </div>

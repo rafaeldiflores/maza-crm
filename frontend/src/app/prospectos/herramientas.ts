@@ -186,9 +186,9 @@ export class Ruta implements OnInit {
         const porId = new Map(sel.map((t) => [t.id, t]));
         this.rutaEnCurso.iniciar(r.ids.map((id, i) => {
           const t = porId.get(id)!;
-          return { id, nombre: t.nombre, direccion: t.direccion, comuna: t.comuna, lat: r.coords[i]?.lat ?? null, lng: r.coords[i]?.lng ?? null };
+          return { id, nombre: t.nombre, direccion: t.direccion, comuna: t.comuna, placeId: t.place_id || undefined, lat: r.coords[i]?.lat ?? null, lng: r.coords[i]?.lng ?? null };
         }), this.volver(), r.km, r.minutos);
-        window.open(this.rutaEnCurso.urlMaps({ lat, lng })!, '_blank', 'noopener');
+        this.rutaEnCurso.abrirUrl({ lat, lng });
         this.cerrar.emit();
       } catch (e) { this.sesion.avisar(mensajeError(e), false); }
       finally { this.optimizando.set(false); }
