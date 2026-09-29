@@ -14,8 +14,7 @@ Las formas de los documentos copian lo que escribe MAZA:
 Las reglas del trial son las de PlanService / worker.js (TRIAL_*): si cambian
 allá, cambian acá.
 
-MAZA_EMULADOR=1 apunta al emulador de Firebase (proyecto demo-litoralbikes,
-puertos por defecto) para probar sin tocar producción.
+MAZA_EMULADOR=1 apunta al emulador de Firebase (ver nube.py).
 """
 from __future__ import annotations
 
@@ -26,12 +25,8 @@ from datetime import datetime, timezone, timedelta
 from functools import lru_cache
 from typing import Any, Dict, List, Optional
 
-EMULADOR = os.environ.get("MAZA_EMULADOR") == "1"
-if EMULADOR:
-    os.environ.setdefault("FIRESTORE_EMULATOR_HOST", "localhost:8080")
-    os.environ.setdefault("FIREBASE_AUTH_EMULATOR_HOST", "localhost:9099")
-
-PROYECTO = "demo-litoralbikes" if EMULADOR else "litoralbikes-7d29d"
+import nube
+from nube import EMULADOR, PROYECTO
 
 PLANES_PAGO = ("pro", "ilimitado", "empresa")
 PLANES_VALIDOS = ("trial", "basico", *PLANES_PAGO)
@@ -61,15 +56,12 @@ class ErrorAdmin(Exception):
     """Error de validación: el mensaje se muestra tal cual en la UI."""
 
 
-@lru_cache(maxsize=1)
 def _app():
-    import firebase_admin
-    return firebase_admin.initialize_app(options={"projectId": PROYECTO})
+    return nube.app()
 
 
 def _db():
-    from firebase_admin import firestore
-    return firestore.client(_app())
+    return nube.firestore_db()
 
 
 def _auth():

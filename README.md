@@ -29,7 +29,7 @@ Combina **extracción automatizada de Google Maps**, un **panel CRM interactivo*
    - Lanza nuevos rastreos regionales directamente desde la web sin tocar la consola.
    - Presets para Litoral Central, Gran Valparaíso, Santiago Poniente/Sur, Santiago Centro/Oriente y Rancagua.
    - Terminal en vivo con logs de avance.
-   - Sincronización automática de nuevos talleres a la base de datos SQLite (`crm_talleres.db`).
+   - Sincronización automática de nuevos talleres a la base del CRM en la nube (Firestore).
 
 5. **Exportación Ejecutiva**:
    - Descarga en 1 clic la base de datos completa o filtrada en **Excel (`.xlsx`)** con hipervínculos a WhatsApp y en **CSV**.
@@ -45,7 +45,7 @@ Doble clic sobre `dist/MazaCRM/MazaCRM.exe`. **No aparece ninguna ventana de con
 
 Si algo no abre, revisa `maza_crm.log` (se crea junto al `.exe`) — ahí queda todo lo que antes se veía en la consola.
 
-> Todo lo que el CRM guarda (`crm_talleres.db`, `exports/`, `recordings/`, `maza_crm.log`) vive junto al `.exe`, nunca en una carpeta temporal. Puedes copiar toda la carpeta `dist/MazaCRM/` completa a un pendrive u otro equipo y seguirá funcionando con los mismos datos.
+> Los datos del CRM están en la nube (ver «Datos en la nube»). Junto al `.exe` solo quedan `exports/`, la copia local de `recordings/` y `maza_crm.log`.
 >
 > ⚠️ El rastreo de talleres (Google Maps) necesita Chromium instalado en el equipo (`playwright install chromium` una sola vez — ver más abajo). El panel y el CRM funcionan igual sin eso; solo la extracción de nuevos talleres lo requiere.
 
@@ -66,6 +66,25 @@ Luego abre en tu navegador:
 👉 **[http://localhost:8000](http://localhost:8000)**
 
 *(Solo se abre en este PC: el servidor escucha en 127.0.0.1, ver «Cuentas MAZA» más abajo.)*
+
+---
+
+## ☁️ Datos en la nube (varios PC)
+
+Los talleres, reuniones, historial y checklist de onboarding viven en **Firestore** (colecciones `crm*` del proyecto de MAZA) y las grabaciones en **Firebase Storage** (`crm/grabaciones/`). Cualquier PC con `gcloud auth application-default login` ve lo mismo, y un cambio hecho en un PC aparece en el otro en segundos.
+
+- Al abrir, el CRM baja todo una vez y después solo escucha cambios: filtrar, ordenar y contar no gasta lecturas.
+- Necesita internet. Si no hay red o faltan las credenciales, la pantalla muestra un aviso rojo con el motivo.
+- Las grabaciones se guardan también en `recordings/` del PC donde se grabaron; en otro PC se descargan la primera vez que se abren.
+- Las apps de MAZA no pueden leer estas colecciones: las reglas cierran todo lo que no es de un taller.
+
+**Pasar una base vieja (`crm_talleres.db`) a la nube**, una vez en cada PC que tenga datos:
+```powershell
+python migrar_a_nube.py --simular                  # muestra qué subiría
+python migrar_a_nube.py                            # la crm_talleres.db de esta carpeta
+python migrar_a_nube.py "D:\proyectos stgo\scraper-talleres\dist\MazaCRM\crm_talleres.db"
+```
+Junta por nombre + comuna: si corres el script en dos PC, no se duplican talleres (en los que ya estaban solo completa campos vacíos). Se puede repetir sin riesgo. La base SQLite queda intacta como respaldo.
 
 ---
 
@@ -108,7 +127,10 @@ El resultado queda en `dist/MazaCRM/`. La ventana de consola está desactivada a
 ```
 D:\proyectos stgo\scraper-talleres\
 ├── app.py                  # Servidor FastAPI y API REST
-├── db.py                   # Base de datos SQLite (crm_talleres.db)
+├── db.py                   # Datos del CRM en Firestore (espejo en memoria)
+├── nube.py                 # Conexión a Firebase (gcloud, emulador)
+├── migrar_a_nube.py        # Sube una crm_talleres.db vieja a la nube
+├── maza_admin.py / maza_rutas.py  # Cuentas MAZA
 ├── ai_analyzer.py          # Motor de análisis, dolores y resúmenes de visitas
 ├── scraper.py              # Motor Playwright de extracción en Google Maps
 ├── config.py               # Presets regionales y configuración de rubros

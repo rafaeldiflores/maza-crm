@@ -22,8 +22,14 @@ from config import PRESETS_ZONAS, RUBROS_MAP, WHATSAPP_TEMPLATES
 from ai_analyzer import analyze_meeting
 import maza_rutas
 
-# Inicializar Base de Datos
-db.init_db()
+# Cargar el CRM desde Firestore (ver db.py). Si no hay red o credenciales, el
+# servidor arranca igual y /api responde 503 con el motivo, que index.html
+# muestra en un aviso: con un .exe sin consola no habría otra forma de verlo.
+ERROR_INICIO: Optional[str] = None
+try:
+    db.init_db()
+except Exception as e:  # noqa: BLE001
+    ERROR_INICIO = str(e)
 
 app = FastAPI(title="MAZA - CRM & Prospección Regional de Talleres")
 
@@ -44,7 +50,14 @@ async def solo_desde_el_crm(request: Request, call_next):
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-maza-crm") != "1":
             return JSONResponse({"detail": "Falta el header X-Maza-CRM."}, status_code=403)
+    if ERROR_INICIO and request.url.path.startswith("/api/") and request.url.path != "/api/salud":
+        return JSONResponse({"detail": ERROR_INICIO}, status_code=503)
     return await call_next(request)
+
+
+@app.get("/api/salud")
+def salud():
+    return {"ok": ERROR_INICIO is None, "error": ERROR_INICIO}
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -63,14 +76,22 @@ if not STATIC_DIR.exists():
     STATIC_DIR = BASE_DIR / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-RECORDINGS_DIR = BASE_DIR / "recordings"
+RECORDINGS_DIR = db.RECORDINGS_DIR
 EXPORTS_DIR = BASE_DIR / "exports"
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/recordings", StaticFiles(directory=RECORDINGS_DIR), name="recordings")
+
+
+@app.get("/recordings/{filename}")
+def servir_grabacion(filename: str):
+    """La grabación desde este PC o, si se grabó en otro, bajada de Storage."""
+    ruta = db.ruta_audio_local(filename)
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="Grabación no encontrada")
+    return FileResponse(ruta, media_type="audio/webm")
 
 # Estado de tarea de scraping en segundo plano
 scrape_state = {
@@ -248,6 +269,7 @@ def estado_desde_resultado(resultado: str) -> str:
 
 @app.post("/api/reuniones")
 async def create_reunion(
+    background: BackgroundTasks,
     taller_id: int = Form(...),
     tipo: str = Form("Presencial"),
     duracion_segundos: int = Form(0),
@@ -258,7 +280,7 @@ async def create_reunion(
     encargado_nombre: str = Form(""),
     proximo_contacto: str = Form(""),
     prioridad: str = Form(""),
-    audio_file: Optional[UploadFile] = File(None)
+    audio_file: Optional[UploadFile] = File(None),
 ):
     taller = db.get_taller_by_id(taller_id)
     if not taller:
@@ -273,6 +295,8 @@ async def create_reunion(
         with open(file_path, "wb") as f:
             f.write(content)
         archivo_audio_rel = f"/recordings/{filename}"
+        # A Storage en segundo plano: la visita se guarda sin esperar la subida.
+        background.add_task(db.subir_audio, filename)
 
     # Generar informe / resumen si hay notas o transcripción
     full_text = f"{notas}\n{transcripcion}".strip()
@@ -314,25 +338,14 @@ async def create_reunion(
 
 @app.post("/api/reuniones/{reunion_id}/generar-informe")
 def generar_informe_reunion(reunion_id: int):
-    conn = db.get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT r.*, t.nombre as taller_nombre, t.rubro as taller_rubro FROM reuniones r JOIN talleres t ON r.taller_id = t.id WHERE r.id = ?", (reunion_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
+    reunion = db.get_reunion(reunion_id)
+    if not reunion:
         raise HTTPException(status_code=404, detail="Reunión no encontrada")
 
-    reunion = dict(row)
     text = f"{reunion['notas']}\n{reunion['transcripcion']}".strip()
     ai_report = analyze_meeting(reunion["taller_nombre"], reunion["taller_rubro"], text)
 
-    # Actualizar resumen_ia
-    conn = db.get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE reuniones SET resumen_ia = ? WHERE id = ?", (ai_report.get("resumen", ""), reunion_id))
-    conn.commit()
-    conn.close()
+    db.update_reunion(reunion_id, {"resumen_ia": ai_report.get("resumen", "")})
 
     return {"ok": True, "reporte": ai_report}
 
