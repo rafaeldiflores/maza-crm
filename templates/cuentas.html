@@ -6,7 +6,7 @@
   <title>Cuentas MAZA — CRM</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <script>
     // Mismo candado que index.html: toda llamada lleva X-Maza-CRM (app.py).
     (() => {
@@ -20,12 +20,7 @@
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
-  <script>
-    tailwind.config = { theme: { extend: { fontFamily: {
-      sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-      mono: ['"JetBrains Mono"', 'monospace'],
-    } } } };
-  </script>
+  <script src="/static/tema.js"></script>
 </head>
 <body class="min-h-full font-sans antialiased bg-slate-50">
 
@@ -59,7 +54,7 @@
     <section id="metricas" class="grid grid-cols-2 md:grid-cols-5 gap-3"></section>
 
     <!-- Pestañas -->
-    <nav class="flex gap-1 border-b border-slate-200 text-sm font-bold">
+    <nav class="hidden flex gap-1 border-b border-slate-200 text-sm font-bold">
       <button data-tab="hoy" class="tab px-3 py-2">Hoy <span id="n-hoy" class="text-red-600"></span></button>
       <button data-tab="cuentas" class="tab px-3 py-2">Cuentas</button>
       <button data-tab="tickets" class="tab px-3 py-2">Soporte <span id="n-tickets" class="text-amber-600"></span></button>
@@ -629,7 +624,9 @@ function cambiarPestana(t) {
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => cambiarPestana(b.dataset.tab)));
 ['#buscar', '#filtro-modo', '#orden'].forEach((s) => $(s).addEventListener('input', pintarCuentas));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { cerrarPanel(); cerrarCrear(); } });
-cambiarPestana('hoy');
+const desdeHash = () => { const t = (location.hash || '#hoy').slice(1); cambiarPestana(document.getElementById('tab-' + t) ? t : 'hoy'); };
+window.addEventListener('hashchange', desdeHash);
+desdeHash();
 cargar();
 iconos();
 </script>

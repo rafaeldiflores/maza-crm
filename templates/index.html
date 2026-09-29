@@ -8,7 +8,7 @@
   <!-- Google Fonts: Plus Jakarta Sans & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <script>
     // Toda escritura a /api lleva X-Maza-CRM (ver solo_desde_el_crm en app.py):
@@ -27,31 +27,7 @@
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
 
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['"Plus Jakarta Sans"', 'system-ui', '-apple-system', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'monospace'],
-          },
-          colors: {
-            maza: {
-              50: '#fffbeb',
-              100: '#fef3c7',
-              200: '#fde68a',
-              400: '#fbbf24',
-              500: '#f59e0b',
-              600: '#d97706',
-              700: '#b45309',
-              dark: '#0f172a',
-              card: '#ffffff'
-            }
-          }
-        }
-      }
-    }
-  </script>
+  <script src="/static/tema.js"></script>
 
   <style>
     /* Estilos personalizados y micro-animaciones */
@@ -113,7 +89,7 @@
               CRM EN TERRENO
             </span>
             <span class="hidden sm:inline-flex items-center gap-1 text-[11px] text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/50">
-              <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Local
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> En la nube
             </span>
           </div>
           <p class="text-xs text-slate-500 hidden md:block">Gestión de prospección, notas de voz y seguimiento de talleres</p>
@@ -1672,6 +1648,17 @@
         document.getElementById("modal-comuna-badge").innerText = t.comuna;
         document.getElementById("modal-taller-telefono").innerText = t.telefono || "No especificado";
         pintarIa(t);
+        let etapas = document.getElementById("modal-etapas");
+        if (!etapas) {
+          etapas = document.createElement("div");
+          etapas.id = "modal-etapas";
+          document.getElementById("modal-taller-nombre").after(etapas);
+        }
+        pintarEtapas(etapas, t.estado, async (nuevo) => {
+          await fetch(`/api/talleres/${t.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ estado: nuevo }) });
+          openModalReunion(t.id);
+          refreshAll();
+        });
 
         const btnWa = document.getElementById("modal-btn-wa");
         if (t.whatsapp_link && t.whatsapp_link !== "N/A") {
