@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { Api, Sesion, mensajeError } from '../core/api';
 import { Presets } from '../core/modelos';
 import { Modal } from '../compartido/modal';
+import { Ajustes } from '../core/ajustes';
 
 /** Rastreo con Places API: comunas × rubros, y los nuevos se priorizan con IA. */
 @Component({
@@ -47,6 +48,7 @@ import { Modal } from '../compartido/modal';
 export class Rastreo implements OnInit, OnDestroy {
   private api = inject(Api);
   private sesion = inject(Sesion);
+  private ajustes = inject(Ajustes);
   presets = input<Presets | null>(null);
   cerrar = output<void>();
 
@@ -64,6 +66,8 @@ export class Rastreo implements OnInit, OnDestroy {
   listaComunas = computed(() => this.comunas().split(',').map((c) => c.trim()).filter(Boolean));
 
   ngOnInit() {
+    const r = this.ajustes.general()?.rastreo;
+    if (r) { this.zona.set(r.zona); this.maximo = r.maximo; this.evaluarIa = r.evaluarIa; }
     const z = this.presets()?.zonas?.[this.zona()] ? this.zona() : Object.keys(this.presets()?.zonas ?? {})[0];
     if (z) this.elegirZona(z);
     this.elegidos.set(new Set(this.rubros().map((r) => r.codigo)));

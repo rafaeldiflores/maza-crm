@@ -1,3 +1,4 @@
+import { WaPipe } from '../compartido/wa.pipe';
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Api, Sesion, mensajeError } from '../core/api';
@@ -20,7 +21,7 @@ const CHIPS = [
  */
 @Component({
   selector: 'app-ficha-taller',
-  imports: [FormsModule, Modal],
+  imports: [FormsModule, Modal, WaPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal ancho="46rem" (cerrar)="salir()">
@@ -52,7 +53,7 @@ const CHIPS = [
             @if (t.ia_dolores.length) { <p>Dolores: {{ t.ia_dolores.join(' · ') }}</p> }
             @if (t.ia_mensaje) { <p class="italic text-slate-600">«{{ t.ia_mensaje }}»</p> }
             <div class="flex gap-2 pt-1">
-              @if (waIa(); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w">Enviar este WhatsApp</a> }
+              @if (waIa(); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">Enviar este WhatsApp</a> }
               <button class="btn" [disabled]="evaluando()" (click)="evaluar()">{{ evaluando() ? 'Evaluando…' : 'Reevaluar' }}</button>
             </div>
           </div>
@@ -65,7 +66,7 @@ const CHIPS = [
           <span class="text-sm">Contacto: <b class="font-mono">{{ t.telefono || 'No especificado' }}</b></span>
           <div class="flex flex-wrap gap-2">
             @if (conWa()) {
-              <a class="btn-wa btn" target="_blank" rel="noopener" [href]="waDefecto()">Abrir WhatsApp</a>
+              <a class="btn-wa btn" target="_blank" rel="noopener" [href]="waDefecto() | wa">Abrir WhatsApp</a>
               <select class="btn" [ngModel]="''" (ngModelChange)="abrirPlantilla($event)">
                 <option value="">Plantillas…</option>
                 @for (p of plantillas(); track p.k) { <option [value]="p.k">{{ p.titulo }}</option> }

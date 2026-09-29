@@ -1,5 +1,5 @@
 import { Cuenta, CuentaSalud } from '../core/modelos';
-import { fecha, linkWa } from '../core/utiles';
+import { fecha, linkWa, prefs } from '../core/utiles';
 
 export const SALUD: Record<string, [string, string]> = {
   vencido: ['Prueba vencida', 'border-red-200 bg-red-50 text-red-700'],
@@ -22,7 +22,7 @@ export const PASOS: Record<string, string> = {
   cuenta_creada: 'Cuenta', primer_vehiculo: '1ª orden', usuarios_invitados: 'Equipo', primer_presupuesto: 'Link aprobado',
 };
 
-const saludo = (c: Cuenta) => `Hola${c.nombreTaller ? ' ' + c.nombreTaller : ''}, soy Rafa de MAZA.`;
+const saludo = (c: Cuenta) => `Hola${c.nombreTaller ? ' ' + c.nombreTaller : ''}, soy ${prefs.firma}.`;
 const MENSAJES: Record<string, (c: Cuenta) => string> = {
   vencido: (c) => `${saludo(c)} Tu prueba terminó: ¿te ayudo a dejar el plan activo para que no pierdas tus órdenes?`,
   riesgo: (c) => `${saludo(c)} Vi que no has entrado estos días, ¿te trabaste en algo? Te ayudo en 5 minutos a dejar tu primera orden lista.`,

@@ -497,6 +497,8 @@ def _ultimo_dia_activo(p: Dict[str, Any]) -> Optional[datetime]:
 def salud_cuentas() -> List[Dict[str, Any]]:
     db = _db()
     accesos = _ultimos_accesos()
+    import ajustes
+    umbrales = ajustes.leer()["salud"]
     usuarios = [(d.id, d.to_dict() or {}) for d in db.collection("users").stream()]
     referidos: Dict[str, int] = {}
     for _, p in usuarios:
@@ -523,7 +525,7 @@ def salud_cuentas() -> List[Dict[str, Any]]:
             "usuarios_invitados": uso["equipo"] > 0,
             "primer_presupuesto": uso["aprobaciones"] > 0,
         }
-        estado, motivo = _diagnostico(f, sin_uso, pasos)
+        estado, motivo = _diagnostico(f, sin_uso, pasos, umbrales)
         filas.append({
             **f, "uso": uso, "pasos": pasos, "ultimoAcceso": acceso.isoformat() if acceso else None,
             "diasSinUso": sin_uso, "salud": estado, "motivo": motivo,
@@ -534,15 +536,15 @@ def salud_cuentas() -> List[Dict[str, Any]]:
     return filas
 
 
-def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, bool]):
+def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, bool], u: Dict[str, int]):
     modo = f["modo"]
     if modo in PLANES_PAGO:
         hasta = _fecha(f["planVigenteHasta"])
         if hasta:
             dias = (hasta - datetime.now(timezone.utc)).days
-            if dias <= 7:
+            if dias <= u["diasAvisoRenovar"]:
                 return "renovar", f"Vence en {max(dias, 0)} días"
-        if sin_uso is not None and sin_uso >= 7:
+        if sin_uso is not None and sin_uso >= u["diasSinUsoPago"]:
             return "riesgo", f"Pagando, {sin_uso} días sin usar"
         return "sano", "Al día"
     if modo == "trial_expirado":
@@ -550,9 +552,9 @@ def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, boo
     if modo != "trial":
         return "sano", ""
     hechos = sum(pasos.values())
-    if sin_uso is None or sin_uso >= 3:
+    if sin_uso is None or sin_uso >= u["diasSinUsoPrueba"]:
         return "riesgo", "Nunca entró" if sin_uso is None else f"{sin_uso} días sin entrar"
-    if f["trialDiasUsados"] >= 10:
+    if f["trialDiasUsados"] >= u["diasPruebaPorVencer"]:
         return "riesgo", f"Le quedan {TRIAL_DIAS - f['trialDiasUsados']} días de prueba"
     if hechos < 3 or sin_uso >= 2:
         return "tibio", f"Onboarding {hechos}/4"

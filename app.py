@@ -20,6 +20,7 @@ from pydantic import BaseModel
 import db
 from config import PRESETS_ZONAS, RUBROS_MAP, WHATSAPP_TEMPLATES
 from ai_analyzer import analyze_meeting
+import ajustes
 import maza_admin
 import maza_rutas
 
@@ -159,12 +160,24 @@ class TallerCreate(BaseModel):
 app.include_router(maza_rutas.router)
 
 
+@app.get("/api/config")
+def leer_config():
+    return ajustes.leer()
+
+
+@app.put("/api/config")
+def guardar_config(nueva: Dict[str, Any], request: Request):
+    if IAP_AUDIENCIA and maza_admin.USUARIO.get() not in ADMINS:
+        raise HTTPException(status_code=403, detail="Solo administradores.")
+    return ajustes.guardar(nueva)
+
+
 @app.get("/api/presets")
 def get_presets():
     return {
         "zonas": PRESETS_ZONAS,
         "rubros": RUBROS_MAP,
-        "whatsapp_templates": WHATSAPP_TEMPLATES
+        "whatsapp_templates": ajustes.leer()["plantillas"]
     }
 
 @app.get("/api/stats")

@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Sesion } from './core/api';
+import { Ajustes } from './core/ajustes';
+import { Bloqueo } from './compartido/bloqueo';
 
 interface Pestana { texto: string; ruta: string; admin: boolean }
 
@@ -13,11 +15,12 @@ const PESTANAS: Pestana[] = [
   { texto: 'Soporte', ruta: '/soporte', admin: true },
   { texto: 'Errores', ruta: '/errores', admin: true },
   { texto: 'Auditoría', ruta: '/auditoria', admin: true },
+  { texto: 'Configuración', ruta: '/configuracion', admin: false },
 ];
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Bloqueo],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="sticky top-0 z-40">
@@ -48,6 +51,8 @@ const PESTANAS: Pestana[] = [
       <router-outlet />
     </main>
 
+    @if (ajustes.bloqueada()) { <app-bloqueo /> }
+
     @if (sesion.toast(); as t) {
       <div class="fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-md px-4 py-2 text-sm font-semibold text-white shadow-lg"
            [class]="t.ok ? 'bg-emerald-700' : 'bg-red-600'">{{ t.texto }}</div>
@@ -56,9 +61,11 @@ const PESTANAS: Pestana[] = [
 })
 export class App implements OnInit {
   protected sesion = inject(Sesion);
+  protected ajustes = inject(Ajustes);
   protected pestanas = computed(() => PESTANAS.filter((p) => !p.admin || this.sesion.salud()?.admin !== false));
 
   ngOnInit() {
     this.sesion.cargar();
+    this.ajustes.cargarGeneral();
   }
 }

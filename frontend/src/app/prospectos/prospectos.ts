@@ -1,3 +1,4 @@
+import { WaPipe } from '../compartido/wa.pipe';
 import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
@@ -31,7 +32,7 @@ function guardarPrefs(p: Record<string, any>) {
 
 @Component({
   selector: 'app-prospectos',
-  imports: [FormsModule, NgTemplateOutlet, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch],
+  imports: [FormsModule, NgTemplateOutlet, WaPipe, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Encabezado de página -->
@@ -160,7 +161,7 @@ function guardarPrefs(p: Record<string, any>) {
         }
         <div class="mt-auto flex items-center justify-between gap-2 border-t border-borde pt-2">
           @if (conWa(t)) {
-            <a class="btn-wa btn" target="_blank" rel="noopener" [href]="waDefecto(t)">WhatsApp</a>
+            <a class="btn-wa btn" target="_blank" rel="noopener" [href]="waDefecto(t) | wa">WhatsApp</a>
           } @else { <span class="text-xs italic text-slate-400">Sin WhatsApp</span> }
           <button class="btn-primario btn" (click)="ficha.set(t.id)">Visita / ficha</button>
         </div>

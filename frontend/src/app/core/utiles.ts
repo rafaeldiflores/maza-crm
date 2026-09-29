@@ -15,9 +15,24 @@ export function generarClave() {
 
 export const digitosWa = (link?: string | null) => (link || '').match(/wa\.me\/(\d+)/)?.[1] ?? null;
 
+/** Preferencias de este dispositivo que afectan a los links (las fija el
+ * servicio Ajustes). */
+export const prefs = { waBusiness: false, firma: 'Rafa de MAZA' };
+
+/**
+ * Link de WhatsApp. Con «WhatsApp Business» activado, en Android se usa un
+ * intent al paquete com.whatsapp.w4b (si no está instalado, cae al link
+ * normal). En PC y iPhone no se puede elegir: se abre el WhatsApp instalado.
+ */
 export function linkWa(telefonoOLink: string | null | undefined, texto = ''): string | null {
   const d = digitosWa(telefonoOLink) ?? (String(telefonoOLink || '').replace(/\D/g, '') || null);
-  return d ? `https://wa.me/${d}${texto ? '?text=' + encodeURIComponent(texto) : ''}` : null;
+  if (!d) return null;
+  const web = `https://wa.me/${d}${texto ? '?text=' + encodeURIComponent(texto) : ''}`;
+  if (prefs.waBusiness && /Android/i.test(navigator.userAgent)) {
+    const q = `phone=${d}${texto ? '&text=' + encodeURIComponent(texto) : ''}`;
+    return `intent://send/?${q}#Intent;scheme=whatsapp;package=com.whatsapp.w4b;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+  }
+  return web;
 }
 
 export function linkPlantilla(t: Pick<Taller, 'whatsapp_link' | 'nombre'>, presets: Presets | null, clave: string) {

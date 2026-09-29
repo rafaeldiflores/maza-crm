@@ -10,5 +10,6 @@ export const routes: Routes = [
   { path: 'soporte', loadComponent: () => import('./cuentas/paneles').then((m) => m.Soporte) },
   { path: 'errores', loadComponent: () => import('./cuentas/paneles').then((m) => m.Errores) },
   { path: 'auditoria', loadComponent: () => import('./cuentas/paneles').then((m) => m.Auditoria) },
+  { path: 'configuracion', loadComponent: () => import('./configuracion/configuracion').then((m) => m.Configuracion) },
   { path: '**', redirectTo: 'prospectos' },
 ];

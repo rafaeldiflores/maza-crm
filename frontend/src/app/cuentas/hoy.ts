@@ -1,14 +1,15 @@
+import { WaPipe } from '../compartido/wa.pipe';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { Api, Sesion, mensajeError } from '../core/api';
 import { CuentaSalud, NOMBRE_PLAN, Taller } from '../core/modelos';
-import { tieneWa } from '../core/utiles';
+import { linkWa, tieneWa } from '../core/utiles';
 import { FichaCuenta } from './ficha-cuenta';
 import { PASOS, SALUD, waCuenta } from './comun';
 
 /** A quién llamar hoy: cuentas con problemas de uso y prospectos atrasados. */
 @Component({
   selector: 'app-hoy',
-  imports: [FichaCuenta],
+  imports: [FichaCuenta, WaPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Hoy</p><h1 class="text-xl font-bold">A quién llamar</h1></section>
@@ -23,7 +24,7 @@ import { PASOS, SALUD, waCuenta } from './comun';
               <p class="text-xs text-slate-500">{{ c.motivo }} · {{ plan[c.modo] }} ·
                 @for (p of pasosDe(c); track p.k) { <span class="mr-1.5">{{ p.ok ? '✓' : '·' }} {{ p.t }}</span> }</p>
             </button>
-            @if (wa(c); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w">WhatsApp</a> } @else { <span class="text-xs text-slate-400">sin teléfono</span> }
+            @if (wa(c); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">WhatsApp</a> } @else { <span class="text-xs text-slate-400">sin teléfono</span> }
           </article>
         } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Todas las cuentas van bien.</p> }
       </div>
@@ -33,7 +34,7 @@ import { PASOS, SALUD, waCuenta } from './comun';
           <article class="tarjeta flex items-center justify-between gap-2 p-3">
             <div><p class="font-bold">{{ t.nombre }} <span class="text-xs font-normal text-slate-500">{{ t.comuna }} · {{ t.estado }}</span></p>
               <p class="text-xs text-slate-500">Tocaba el {{ (t.proximo_contacto || '').slice(0, 10) }}</p></div>
-            @if (conWa(t)) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="t.whatsapp_link">WhatsApp</a> }
+            @if (conWa(t)) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="waT(t) | wa">WhatsApp</a> }
           </article>
         } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Nada vencido.</p> }
       </div>
@@ -63,4 +64,5 @@ export class Hoy implements OnInit {
   pasosDe = (c: CuentaSalud) => Object.entries(c.pasos).map(([k, ok]) => ({ k, ok, t: PASOS[k] ?? k }));
   wa = (c: CuentaSalud) => waCuenta(c, c.salud);
   conWa = (t: Taller) => tieneWa(t);
+  waT = (t: Taller) => linkWa(t.whatsapp_link);
 }

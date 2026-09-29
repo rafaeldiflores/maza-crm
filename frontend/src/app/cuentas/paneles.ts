@@ -1,3 +1,4 @@
+import { WaPipe } from '../compartido/wa.pipe';
 // Cobros, métricas, soporte, errores y auditoría: vistas de lectura con alguna
 // acción puntual, todas contra /api/maza (solo admin).
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
@@ -10,7 +11,7 @@ import { waCuenta } from './comun';
 
 @Component({
   selector: 'app-cobros',
-  imports: [FichaCuenta],
+  imports: [FichaCuenta, WaPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Cobros</p><h1 class="text-xl font-bold">Pagos y renovaciones</h1></section>
@@ -19,7 +20,7 @@ import { waCuenta } from './comun';
       @for (c of renovar(); track c.uid) {
         <article class="tarjeta flex items-center justify-between gap-2 border-l-4 !border-l-amber-400 p-3">
           <button class="text-left" (click)="abierta.set(c.uid)"><p class="font-bold">{{ c.nombreTaller || c.email }}</p><p class="text-xs text-slate-500">{{ plan[c.modo] }} · {{ c.motivo }}</p></button>
-          @if (wa(c); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w">WhatsApp</a> }
+          @if (wa(c); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">WhatsApp</a> }
         </article>
       } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Nada por vencer.</p> }
     </div>
@@ -93,7 +94,7 @@ export class Metricas implements OnInit {
 
 @Component({
   selector: 'app-soporte',
-  imports: [FormsModule],
+  imports: [FormsModule, WaPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Soporte</p><h1 class="text-xl font-bold">Tickets de los talleres</h1></section>
@@ -108,7 +109,7 @@ export class Metricas implements OnInit {
             <button class="btn-primario btn" (click)="resolver(x)">Marcar resuelto</button>
           } @else {
             <p class="text-xs text-emerald-700">Resuelto{{ x.respuesta ? ': ' + x.respuesta : '' }}</p>
-            @if (wa(x); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w">Avisar por WhatsApp</a> }
+            @if (wa(x); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">Avisar por WhatsApp</a> }
           }
         </article>
       } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Sin tickets.</p> }
