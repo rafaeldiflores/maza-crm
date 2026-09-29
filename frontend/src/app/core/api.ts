@@ -54,6 +54,8 @@ export class Api {
   guardarReunion = (form: FormData) => firstValueFrom(this.http.post<{ ok: boolean }>('/api/reuniones', form));
   embudo = () => this.get<{ funnel: { estado: string; count: number; pct_total: number; pct_etapa_anterior: number }[]; total: number; descartados_en_algun_punto: number }>('/api/stats/embudo');
   tendencia = (dias = 14) => this.get<{ fecha: string; nuevos: number; visitas: number }[]>('/api/stats/tendencia', { dias });
+  optimizarRuta = (lat: number, lng: number, ids: number[], volver: boolean) =>
+    this.post<{ ids: number[]; km: number; minutos: number }>('/api/ruta/optimizar', { lat, lng, ids, volver });
   duplicados = () => this.get<{ motivo: string; detalle: string; talleres: Pick<Taller, 'id' | 'nombre' | 'comuna' | 'telefono' | 'estado'>[] }[]>('/api/duplicados');
   iniciarRastreo = (d: { comunas: string[]; rubros: string[]; max_per_query: number; evaluar_ia: boolean }) => this.post('/api/scrape/start', d);
   detenerRastreo = () => this.post('/api/scrape/stop');

@@ -64,6 +64,11 @@ const MAX_PARADAS = 10; // Google Maps degrada la experiencia con más paradas
                   (click)="rubro.set(r)">{{ r }} ({{ cuenta(r) }})</button>
         }
       </div>
+      <div class="flex flex-wrap items-center gap-2 rounded-lg border border-marca-200 bg-marca-50 p-2 text-xs">
+        <button class="btn-primario btn" [disabled]="optimizando()" (click)="optimizar()">{{ optimizando() ? 'Calculando…' : '📍 Ruta óptima desde mi ubicación' }}</button>
+        <label class="flex items-center gap-1"><input type="checkbox" [checked]="volver()" (change)="volver.set($any($event.target).checked)" /> Volver al inicio</label>
+        @if (resultado(); as r) { <span class="font-semibold">{{ r.km }} km · {{ r.minutos }} min</span> }
+      </div>
       @for (g of grupos(); track g.comuna) {
         <details class="overflow-hidden rounded-lg border border-borde" open>
           <summary class="flex cursor-pointer items-center justify-between bg-fondo px-3 py-2 text-sm font-bold">📍 {{ g.comuna }} <span class="insignia border-marca-200 bg-marca-50 text-marca-700">{{ g.items.length }}</span></summary>
@@ -98,6 +103,9 @@ export class Ruta implements OnInit {
   todos = signal<Taller[]>([]);
   elegidos = signal(new Set<number>());
   rubro = signal('Todos');
+  volver = signal(true);
+  optimizando = signal(false);
+  resultado = signal<{ km: number; minutos: number } | null>(null);
   valida = direccionValida;
   rubros = computed(() => ['Todos', ...[...new Set(this.todos().map((t) => t.rubro || 'General'))].sort()]);
   visibles = computed(() => this.todos().filter((t) => this.rubro() === 'Todos' || (t.rubro || 'General') === this.rubro()));
@@ -122,6 +130,29 @@ export class Ruta implements OnInit {
     items.filter(direccionValida).forEach((t) => (on ? s.add(t.id) : s.delete(t.id)));
     this.elegidos.set(s);
   }
+  /** Orden que minimiza km desde la ubicación actual (Routes API) y abre Maps
+   * con ese orden, partiendo desde donde estás. */
+  optimizar() {
+    const sel = this.visibles().filter((t) => this.elegidos().has(t.id) && direccionValida(t));
+    if (sel.length < 2) { this.sesion.avisar('Selecciona al menos 2 talleres con dirección', false); return; }
+    if (sel.length > 9) { this.sesion.avisar(`Google Maps admite 9 paradas por ruta: tienes ${sel.length}. Desmarca algunas o filtra por rubro.`, false); return; }
+    if (!navigator.geolocation) { this.sesion.avisar('Este dispositivo no entrega ubicación', false); return; }
+    this.optimizando.set(true);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lng } = pos.coords;
+      try {
+        const r = await this.api.optimizarRuta(lat, lng, sel.map((t) => t.id), this.volver());
+        this.resultado.set({ km: r.km, minutos: r.minutos });
+        const porId = new Map(sel.map((t) => [t.id, t]));
+        const puntos = r.ids.map((id) => encodeURIComponent(`${porId.get(id)!.direccion}, ${porId.get(id)!.comuna}, Chile`));
+        const inicio = `${lat},${lng}`;
+        window.open(`https://www.google.com/maps/dir/${inicio}/${puntos.join('/')}${this.volver() ? '/' + inicio : ''}`, '_blank', 'noopener');
+      } catch (e) { this.sesion.avisar(mensajeError(e), false); }
+      finally { this.optimizando.set(false); }
+    }, () => { this.optimizando.set(false); this.sesion.avisar('Permite el acceso a tu ubicación', false); },
+    { enableHighAccuracy: true, timeout: 15000 });
+  }
+
   abrir(items: Taller[]) {
     let sel = items.filter((t) => this.elegidos().has(t.id));
     if (!sel.length) { this.sesion.avisar('Selecciona al menos un taller con dirección', false); return; }

@@ -108,3 +108,35 @@ def detalle(place_id: str) -> Dict[str, Any]:
             for r in d.get("reviews", [])
         ],
     }
+
+
+def optimizar_ruta(origen: Dict[str, float], paradas: List[str], volver: bool) -> Dict[str, Any]:
+    """Orden de visita que minimiza el recorrido (Routes API, optimizeWaypointOrder).
+    `origen` = {lat, lng} del vendedor; `paradas` = direcciones. Con `volver`, la
+    ruta termina donde empezó; si no, en la última parada del orden óptimo."""
+    punto = {"location": {"latLng": {"latitude": origen["lat"], "longitude": origen["lng"]}}}
+    if volver:
+        destino, intermedias = punto, paradas
+    else:
+        # Sin vuelta, Routes necesita un destino fijo: se usa la última parada
+        # elegida y se optimiza el orden de las demás.
+        destino, intermedias = {"address": paradas[-1]}, paradas[:-1]
+    cuerpo = {
+        "origin": punto,
+        "destination": destino,
+        "intermediates": [{"address": a} for a in intermedias],
+        "travelMode": "DRIVE",
+        "optimizeWaypointOrder": True,
+        "languageCode": "es",
+        "regionCode": "CL",
+    }
+    r = _sesion().post("https://routes.googleapis.com/directions/v2:computeRoutes", json=cuerpo, timeout=30, headers={
+        "X-Goog-FieldMask": "routes.optimizedIntermediateWaypointIndex,routes.distanceMeters,routes.duration",
+        "X-Goog-User-Project": nube.PROYECTO_REAL,
+    })
+    if r.status_code >= 400:
+        raise RuntimeError(f"Routes API {r.status_code}: {r.text[:300]}")
+    ruta = (r.json().get("routes") or [{}])[0]
+    idx = ruta.get("optimizedIntermediateWaypointIndex") or list(range(len(intermedias)))
+    orden = [idx[i] for i in range(len(intermedias))] + ([] if volver else [len(paradas) - 1])
+    return {"orden": orden, "metros": ruta.get("distanceMeters", 0), "segundos": int(str(ruta.get("duration", "0s")).rstrip("s") or 0)}

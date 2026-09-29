@@ -160,6 +160,30 @@ class TallerCreate(BaseModel):
 app.include_router(maza_rutas.router)
 
 
+class RutaPedido(BaseModel):
+    lat: float
+    lng: float
+    ids: List[int]
+    volver: bool = True
+
+
+@app.post("/api/ruta/optimizar")
+def optimizar_ruta(p: RutaPedido):
+    """Ordena los talleres elegidos para recorrer menos km desde la ubicación
+    del vendedor. Devuelve los ids en orden + distancia y tiempo estimados."""
+    import places
+    talleres = [t for t in (db.get_taller_by_id(i) for i in p.ids) if t and t.get("direccion") and t["direccion"] != "No especificada"]
+    if len(talleres) < 2:
+        raise HTTPException(status_code=400, detail="Elige al menos 2 talleres con dirección.")
+    if len(talleres) > 25:
+        raise HTTPException(status_code=400, detail="Máximo 25 paradas por ruta.")
+    try:
+        r = places.optimizar_ruta({"lat": p.lat, "lng": p.lng}, [f"{t['direccion']}, {t['comuna']}, Chile" for t in talleres], p.volver)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"No se pudo optimizar: {e}")
+    return {"ids": [talleres[i]["id"] for i in r["orden"]], "km": round(r["metros"] / 1000, 1), "minutos": round(r["segundos"] / 60)}
+
+
 @app.get("/api/config")
 def leer_config():
     return ajustes.leer()
