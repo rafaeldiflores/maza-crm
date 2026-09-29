@@ -57,6 +57,13 @@ const MAX_PARADAS = 10; // Google Maps degrada la experiencia con más paradas
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-modal titulo="Plan de ruta del día" subtitulo="Por visitar y seguimientos vencidos, agrupados por comuna" (cerrar)="cerrar.emit()">
+      <div class="flex flex-wrap gap-1.5">
+        @for (r of rubros(); track r) {
+          <button class="rounded-full border px-3 py-1 text-xs font-semibold"
+                  [class]="rubro() === r ? 'border-marca-800 bg-marca-800 text-white' : 'border-borde bg-white hover:bg-fondo'"
+                  (click)="rubro.set(r)">{{ r }} ({{ cuenta(r) }})</button>
+        }
+      </div>
       @for (g of grupos(); track g.comuna) {
         <details class="overflow-hidden rounded-lg border border-borde" open>
           <summary class="flex cursor-pointer items-center justify-between bg-fondo px-3 py-2 text-sm font-bold">📍 {{ g.comuna }} <span class="insignia border-marca-200 bg-marca-50 text-marca-700">{{ g.items.length }}</span></summary>
@@ -76,8 +83,8 @@ const MAX_PARADAS = 10; // Google Maps degrada la experiencia con más paradas
       } @empty { <p class="py-8 text-center text-sm text-slate-500">Nada pendiente. ¡Al día!</p> }
       @if (grupos().length) {
         <div class="flex items-center justify-between border-t border-borde pt-3 text-xs">
-          <span>{{ elegidos().size }} seleccionados</span>
-          <button class="btn-primario btn" (click)="abrir(todos())">Ruta combinada</button>
+          <span>{{ seleccionVisible() }} seleccionados</span>
+          <button class="btn-primario btn" (click)="abrir(visibles())">Ruta combinada</button>
         </div>
       }
     </app-modal>
@@ -90,10 +97,15 @@ export class Ruta implements OnInit {
   abrirFicha = output<number>({ alias: 'abrir' });
   todos = signal<Taller[]>([]);
   elegidos = signal(new Set<number>());
+  rubro = signal('Todos');
   valida = direccionValida;
+  rubros = computed(() => ['Todos', ...[...new Set(this.todos().map((t) => t.rubro || 'General'))].sort()]);
+  visibles = computed(() => this.todos().filter((t) => this.rubro() === 'Todos' || (t.rubro || 'General') === this.rubro()));
+  seleccionVisible = computed(() => this.visibles().filter((t) => this.elegidos().has(t.id)).length);
+  cuenta = (r: string) => (r === 'Todos' ? this.todos().length : this.todos().filter((t) => (t.rubro || 'General') === r).length);
   grupos = computed(() => {
     const m = new Map<string, Taller[]>();
-    for (const t of this.todos()) m.set(t.comuna, [...(m.get(t.comuna) ?? []), t]);
+    for (const t of this.visibles()) m.set(t.comuna, [...(m.get(t.comuna) ?? []), t]);
     return [...m.entries()].map(([comuna, items]) => ({ comuna, items })).sort((a, b) => b.items.length - a.items.length);
   });
 
