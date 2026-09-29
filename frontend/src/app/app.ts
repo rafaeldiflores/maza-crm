@@ -3,6 +3,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { Sesion } from './core/api';
 import { Ajustes } from './core/ajustes';
 import { Bloqueo } from './compartido/bloqueo';
+import { PanelRuta } from './compartido/panel-ruta';
 
 interface Pestana { texto: string; ruta: string; admin: boolean }
 
@@ -20,7 +21,7 @@ const PESTANAS: Pestana[] = [
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Bloqueo],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Bloqueo, PanelRuta],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="sticky top-0 z-40">
@@ -51,6 +52,7 @@ const PESTANAS: Pestana[] = [
       <router-outlet />
     </main>
 
+    <app-panel-ruta />
     @if (ajustes.bloqueada()) { <app-bloqueo /> }
 
     @if (sesion.toast(); as t) {

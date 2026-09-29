@@ -181,7 +181,17 @@ def optimizar_ruta(p: RutaPedido):
         r = places.optimizar_ruta({"lat": p.lat, "lng": p.lng}, [f"{t['direccion']}, {t['comuna']}, Chile" for t in talleres], p.volver)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"No se pudo optimizar: {e}")
-    return {"ids": [talleres[i]["id"] for i in r["orden"]], "km": round(r["metros"] / 1000, 1), "minutos": round(r["segundos"] / 60)}
+    return {"ids": [talleres[i]["id"] for i in r["orden"]], "coords": r["coords"], "km": round(r["metros"] / 1000, 1), "minutos": round(r["segundos"] / 60)}
+
+
+@app.post("/api/talleres/{taller_id}/visita-rapida")
+def visita_rapida(taller_id: int):
+    """Marca la visita desde la ruta en curso: deja registro y pasa el taller a
+    Contactado si estaba por visitar (lo hace db.add_reunion)."""
+    if not db.get_taller_by_id(taller_id):
+        raise HTTPException(status_code=404, detail="Taller no encontrado")
+    db.add_reunion(taller_id, {"tipo": "Visita en ruta", "resultado": "Pendiente", "notas": "Visitado desde la ruta del día."})
+    return {"ok": True, "taller": db.get_taller_by_id(taller_id)}
 
 
 @app.get("/api/config")

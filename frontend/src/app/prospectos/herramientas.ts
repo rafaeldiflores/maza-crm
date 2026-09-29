@@ -3,6 +3,7 @@ import { Api, Sesion, mensajeError } from '../core/api';
 import { Taller } from '../core/modelos';
 import { direccionValida, urlRuta } from '../core/utiles';
 import { Modal } from '../compartido/modal';
+import { RutaEnCurso } from '../core/ruta-en-curso';
 
 // ─── Panel de conversión ─────────────────────────────────────────────────────
 @Component({
@@ -104,6 +105,7 @@ export class Ruta implements OnInit {
   elegidos = signal(new Set<number>());
   rubro = signal('Todos');
   volver = signal(true);
+  private rutaEnCurso = inject(RutaEnCurso);
   optimizando = signal(false);
   resultado = signal<{ km: number; minutos: number } | null>(null);
   valida = direccionValida;
@@ -144,9 +146,12 @@ export class Ruta implements OnInit {
         const r = await this.api.optimizarRuta(lat, lng, sel.map((t) => t.id), this.volver());
         this.resultado.set({ km: r.km, minutos: r.minutos });
         const porId = new Map(sel.map((t) => [t.id, t]));
-        const puntos = r.ids.map((id) => encodeURIComponent(`${porId.get(id)!.direccion}, ${porId.get(id)!.comuna}, Chile`));
-        const inicio = `${lat},${lng}`;
-        window.open(`https://www.google.com/maps/dir/${inicio}/${puntos.join('/')}${this.volver() ? '/' + inicio : ''}`, '_blank', 'noopener');
+        this.rutaEnCurso.iniciar(r.ids.map((id, i) => {
+          const t = porId.get(id)!;
+          return { id, nombre: t.nombre, direccion: t.direccion, comuna: t.comuna, lat: r.coords[i]?.lat ?? null, lng: r.coords[i]?.lng ?? null };
+        }), this.volver(), r.km, r.minutos);
+        window.open(this.rutaEnCurso.urlMaps({ lat, lng })!, '_blank', 'noopener');
+        this.cerrar.emit();
       } catch (e) { this.sesion.avisar(mensajeError(e), false); }
       finally { this.optimizando.set(false); }
     }, () => { this.optimizando.set(false); this.sesion.avisar('Permite el acceso a tu ubicación', false); },

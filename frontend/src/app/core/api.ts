@@ -55,7 +55,8 @@ export class Api {
   embudo = () => this.get<{ funnel: { estado: string; count: number; pct_total: number; pct_etapa_anterior: number }[]; total: number; descartados_en_algun_punto: number }>('/api/stats/embudo');
   tendencia = (dias = 14) => this.get<{ fecha: string; nuevos: number; visitas: number }[]>('/api/stats/tendencia', { dias });
   optimizarRuta = (lat: number, lng: number, ids: number[], volver: boolean) =>
-    this.post<{ ids: number[]; km: number; minutos: number }>('/api/ruta/optimizar', { lat, lng, ids, volver });
+    this.post<{ ids: number[]; coords: { lat: number; lng: number }[]; km: number; minutos: number }>('/api/ruta/optimizar', { lat, lng, ids, volver });
+  visitaRapida = (id: number) => this.post<{ ok: boolean }>(`/api/talleres/${id}/visita-rapida`);
   duplicados = () => this.get<{ motivo: string; detalle: string; talleres: Pick<Taller, 'id' | 'nombre' | 'comuna' | 'telefono' | 'estado'>[] }[]>('/api/duplicados');
   iniciarRastreo = (d: { comunas: string[]; rubros: string[]; max_per_query: number; evaluar_ia: boolean }) => this.post('/api/scrape/start', d);
   detenerRastreo = () => this.post('/api/scrape/stop');

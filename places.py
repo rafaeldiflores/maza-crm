@@ -131,7 +131,7 @@ def optimizar_ruta(origen: Dict[str, float], paradas: List[str], volver: bool) -
         "regionCode": "CL",
     }
     r = _sesion().post("https://routes.googleapis.com/directions/v2:computeRoutes", json=cuerpo, timeout=30, headers={
-        "X-Goog-FieldMask": "routes.optimizedIntermediateWaypointIndex,routes.distanceMeters,routes.duration,routes.legs.distanceMeters",
+        "X-Goog-FieldMask": "routes.optimizedIntermediateWaypointIndex,routes.distanceMeters,routes.duration,routes.legs.distanceMeters,routes.legs.endLocation",
         "X-Goog-User-Project": nube.PROYECTO_REAL,
     })
     if r.status_code >= 400:
@@ -142,6 +142,10 @@ def optimizar_ruta(origen: Dict[str, float], paradas: List[str], volver: bool) -
     # En una vuelta el total es igual en ambos sentidos: se parte por la parada
     # más cercana al vendedor (primer tramo vs. tramo de regreso).
     tramos = [l.get("distanceMeters", 0) for l in ruta.get("legs", [])]
+    # Coordenadas de cada parada (fin de cada tramo), para avisar por cercanía.
+    fines = [((l.get("endLocation") or {}).get("latLng") or {}) for l in ruta.get("legs", [])]
+    coords = [{"lat": f.get("latitude"), "lng": f.get("longitude")} for f in fines[:len(orden)]]
     if volver and len(tramos) >= 2 and tramos[-1] < tramos[0]:
         orden.reverse()
-    return {"orden": orden, "metros": ruta.get("distanceMeters", 0), "segundos": int(str(ruta.get("duration", "0s")).rstrip("s") or 0)}
+        coords.reverse()
+    return {"orden": orden, "coords": coords, "metros": ruta.get("distanceMeters", 0), "segundos": int(str(ruta.get("duration", "0s")).rstrip("s") or 0)}
