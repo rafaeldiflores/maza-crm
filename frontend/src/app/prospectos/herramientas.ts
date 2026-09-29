@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, output, signal } from '@angular/core';
 import { Api, Sesion, mensajeError } from '../core/api';
 import { Taller } from '../core/modelos';
-import { direccionValida, urlRuta } from '../core/utiles';
+import { direccionValida } from '../core/utiles';
 import { Modal } from '../compartido/modal';
 import { RutaEnCurso } from '../core/ruta-en-curso';
 
@@ -50,101 +50,139 @@ export class Embudo implements OnInit {
 }
 
 // ─── Plan de ruta ────────────────────────────────────────────────────────────
-const MAX_PARADAS = 10; // Google Maps degrada la experiencia con más paradas
+const MAX_PARADAS = 9; // lo que acepta un link de Google Maps además del origen
 
+/**
+ * Plan del día: parte sin nada marcado; se filtra por rubro, comuna o texto y
+ * se eligen las paradas (hasta 9). «Ruta óptima» ordena desde la ubicación
+ * actual y deja la ruta en curso (checklist con visitado/saltar).
+ */
 @Component({
   selector: 'app-ruta',
   imports: [Modal],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal titulo="Plan de ruta del día" subtitulo="Por visitar y seguimientos vencidos, agrupados por comuna" (cerrar)="cerrar.emit()">
-      <div class="flex flex-wrap gap-1.5">
-        @for (r of rubros(); track r) {
-          <button class="rounded-full border px-3 py-1 text-xs font-semibold"
-                  [class]="rubro() === r ? 'border-marca-800 bg-marca-800 text-white' : 'border-borde bg-white hover:bg-fondo'"
-                  (click)="rubro.set(r)">{{ r }} ({{ cuenta(r) }})</button>
-        }
-      </div>
-      <div class="flex flex-wrap items-center gap-2 rounded-lg border border-marca-200 bg-marca-50 p-2 text-xs">
-        <button class="btn-primario btn" [disabled]="optimizando()" (click)="optimizar()">{{ optimizando() ? 'Calculando…' : '📍 Ruta óptima desde mi ubicación' }}</button>
-        <label class="flex items-center gap-1"><input type="checkbox" [checked]="volver()" (change)="volver.set($any($event.target).checked)" /> Volver al inicio</label>
-        @if (resultado(); as r) { <span class="font-semibold">{{ r.km }} km · {{ r.minutos }} min</span> }
-      </div>
-      @for (g of grupos(); track g.comuna) {
-        <details class="overflow-hidden rounded-lg border border-borde" open>
-          <summary class="flex cursor-pointer items-center justify-between bg-fondo px-3 py-2 text-sm font-bold">📍 {{ g.comuna }} <span class="insignia border-marca-200 bg-marca-50 text-marca-700">{{ g.items.length }}</span></summary>
-          <div class="flex items-center justify-between border-b border-borde px-3 py-1.5">
-            <label class="flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked (change)="marcarComuna(g.items, $any($event.target).checked)" /> Todos con dirección</label>
-            <button class="btn" (click)="abrir(g.items)">Ruta en Maps</button>
-          </div>
-          @for (t of g.items; track t.id) {
-            <div class="flex items-center gap-2 border-b border-borde px-3 py-2 last:border-0">
-              <input type="checkbox" [disabled]="!valida(t)" [checked]="elegidos().has(t.id)" (change)="alternar(t.id)" />
-              <div class="min-w-0 flex-1"><p class="truncate text-xs font-bold">{{ t.nombre }}</p>
-                <p class="truncate text-[11px]" [class]="valida(t) ? 'text-slate-500' : 'italic text-red-500'">{{ t.direccion || 'Sin dirección — no se puede rutear' }}</p></div>
-              <button class="btn" (click)="abrirFicha.emit(t.id)">Ficha</button>
-            </div>
+    <app-modal titulo="Plan de ruta del día" subtitulo="Por visitar y seguimientos vencidos. Filtra y elige hasta 9 paradas." ancho="44rem" (cerrar)="cerrar.emit()">
+      <input class="campo" placeholder="Buscar taller o dirección…" [value]="q()" (input)="q.set($any($event.target).value)" />
+
+      <div>
+        <p class="titulo-seccion mb-1">Rubro</p>
+        <div class="flex flex-wrap gap-1.5">
+          @for (r of rubros(); track r.v) {
+            <button class="rounded-full border px-3 py-1 text-xs font-semibold" [class]="chip(rubro() === r.v)" (click)="rubro.set(r.v)">{{ r.v }} ({{ r.n }})</button>
           }
-        </details>
-      } @empty { <p class="py-8 text-center text-sm text-slate-500">Nada pendiente. ¡Al día!</p> }
-      @if (grupos().length) {
-        <div class="flex items-center justify-between border-t border-borde pt-3 text-xs">
-          <span>{{ seleccionVisible() }} seleccionados</span>
-          <button class="btn-primario btn" (click)="abrir(visibles())">Ruta combinada</button>
         </div>
-      }
+      </div>
+      <div>
+        <p class="titulo-seccion mb-1">Comuna</p>
+        <div class="flex flex-wrap gap-1.5">
+          @for (c of comunas(); track c.v) {
+            <button class="rounded-full border px-3 py-1 text-xs font-semibold" [class]="chip(comuna() === c.v)" (click)="comuna.set(c.v)">{{ c.v }} ({{ c.n }})</button>
+          }
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between text-xs">
+        <span class="text-slate-500">{{ visibles().length }} talleres · {{ sinDireccion() }} sin dirección</span>
+        <div class="flex gap-2">
+          <button class="btn" (click)="marcarVisibles()">Marcar visibles</button>
+          @if (elegidos().size) { <button class="btn" (click)="limpiar()">Limpiar ({{ elegidos().size }})</button> }
+        </div>
+      </div>
+
+      <div class="divide-y divide-borde overflow-hidden rounded-lg border border-borde">
+        @for (t of visibles(); track t.id) {
+          <label class="flex cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-fondo" [class.bg-marca-50]="elegidos().has(t.id)" [class.cursor-not-allowed]="!valida(t)">
+            <input type="checkbox" class="h-4 w-4" [disabled]="!valida(t)" [checked]="elegidos().has(t.id)" (change)="alternar(t)" />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold">{{ t.nombre }}
+                @if (t.puntaje_ia != null) { <span class="text-[11px] font-bold text-emerald-700">🎯 {{ t.puntaje_ia }}</span> }</p>
+              <p class="truncate text-[11px]" [class]="valida(t) ? 'text-slate-500' : 'italic text-red-500'">{{ t.rubro }} · {{ t.comuna }} · {{ valida(t) ? t.direccion : 'sin dirección' }}</p>
+            </div>
+            @if (t.estado !== 'Por consultar') { <span class="insignia border-red-200 bg-red-50 text-red-700">Seguimiento</span> }
+            <button class="btn !px-2" title="Ficha" (click)="$event.preventDefault(); abrirFicha.emit(t.id)">Ficha</button>
+          </label>
+        } @empty { <p class="p-6 text-center text-sm text-slate-500">{{ cargado() ? 'Nada con estos filtros.' : 'Cargando…' }}</p> }
+      </div>
+
+      <div class="sticky bottom-0 -mx-4 -mb-4 space-y-2 border-t border-borde bg-white p-3 sm:-mx-5 sm:-mb-5">
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+          <span class="font-semibold" [class.text-red-700]="elegidos().size > max">{{ elegidos().size }}/{{ max }} paradas</span>
+          <label class="flex items-center gap-1.5"><input type="checkbox" [checked]="volver()" (change)="volver.set($any($event.target).checked)" /> Volver al inicio</label>
+        </div>
+        <button class="btn-primario btn w-full !py-3 !text-sm" [disabled]="elegidos().size < 2 || elegidos().size > max || optimizando()" (click)="optimizar()">
+          {{ optimizando() ? 'Calculando la mejor ruta…' : '📍 Ruta óptima desde mi ubicación' }}</button>
+      </div>
     </app-modal>
   `,
 })
 export class Ruta implements OnInit {
   private api = inject(Api);
   private sesion = inject(Sesion);
+  private rutaEnCurso = inject(RutaEnCurso);
   cerrar = output<void>();
   abrirFicha = output<number>({ alias: 'abrir' });
+
+  readonly max = MAX_PARADAS;
+  readonly valida = direccionValida;
   todos = signal<Taller[]>([]);
+  cargado = signal(false);
   elegidos = signal(new Set<number>());
   rubro = signal('Todos');
+  comuna = signal('Todas');
+  q = signal('');
   volver = signal(true);
-  private rutaEnCurso = inject(RutaEnCurso);
   optimizando = signal(false);
-  resultado = signal<{ km: number; minutos: number } | null>(null);
-  valida = direccionValida;
-  rubros = computed(() => ['Todos', ...[...new Set(this.todos().map((t) => t.rubro || 'General'))].sort()]);
-  visibles = computed(() => this.todos().filter((t) => this.rubro() === 'Todos' || (t.rubro || 'General') === this.rubro()));
-  seleccionVisible = computed(() => this.visibles().filter((t) => this.elegidos().has(t.id)).length);
-  cuenta = (r: string) => (r === 'Todos' ? this.todos().length : this.todos().filter((t) => (t.rubro || 'General') === r).length);
-  grupos = computed(() => {
-    const m = new Map<string, Taller[]>();
-    for (const t of this.visibles()) m.set(t.comuna, [...(m.get(t.comuna) ?? []), t]);
-    return [...m.entries()].map(([comuna, items]) => ({ comuna, items })).sort((a, b) => b.items.length - a.items.length);
+
+  private filtrados = (rubro: string, comuna: string) => this.todos().filter((t) =>
+    (rubro === 'Todos' || (t.rubro || 'General') === rubro) && (comuna === 'Todas' || t.comuna === comuna));
+
+  private chips(valores: string[], todos: string, contar: (v: string) => number) {
+    const unicos = [...new Set(valores)].map((v) => ({ v, n: contar(v) })).sort((a, b) => b.n - a.n);
+    return [{ v: todos, n: contar(todos) }, ...unicos];
+  }
+
+  rubros = computed(() => this.chips(this.filtrados('Todos', this.comuna()).map((t) => t.rubro || 'General'), 'Todos',
+    (v) => this.filtrados(v, this.comuna()).length));
+  comunas = computed(() => this.chips(this.filtrados(this.rubro(), 'Todas').map((t) => t.comuna), 'Todas',
+    (v) => this.filtrados(this.rubro(), v).length));
+  visibles = computed(() => {
+    const q = this.q().trim().toLowerCase();
+    return this.filtrados(this.rubro(), this.comuna())
+      .filter((t) => !q || [t.nombre, t.direccion, t.comuna].some((x) => (x || '').toLowerCase().includes(q)))
+      .sort((a, b) => Number(direccionValida(b)) - Number(direccionValida(a)) || (b.puntaje_ia ?? -1) - (a.puntaje_ia ?? -1));
   });
+  sinDireccion = computed(() => this.visibles().filter((t) => !direccionValida(t)).length);
 
   async ngOnInit() {
     const [a, b] = await Promise.all([this.api.talleres({ estado: 'Por consultar' }), this.api.talleres({ vencidos: true })]);
-    const unicos = new Map([...a, ...b].map((t) => [t.id, t]));
-    this.todos.set([...unicos.values()]);
-    this.elegidos.set(new Set(this.todos().filter(direccionValida).map((t) => t.id)));
+    this.todos.set([...new Map([...a, ...b].map((t) => [t.id, t])).values()]);
+    this.cargado.set(true);
   }
 
-  alternar(id: number) { const s = new Set(this.elegidos()); s.has(id) ? s.delete(id) : s.add(id); this.elegidos.set(s); }
-  marcarComuna(items: Taller[], on: boolean) {
+  chip = (activo: boolean) => (activo ? 'border-marca-800 bg-marca-800 text-white' : 'border-borde bg-white hover:bg-fondo');
+
+  alternar(t: Taller) {
+    if (!direccionValida(t)) return;
     const s = new Set(this.elegidos());
-    items.filter(direccionValida).forEach((t) => (on ? s.add(t.id) : s.delete(t.id)));
+    s.has(t.id) ? s.delete(t.id) : s.add(t.id);
     this.elegidos.set(s);
   }
-  /** Orden que minimiza km desde la ubicación actual (Routes API) y abre Maps
-   * con ese orden, partiendo desde donde estás. */
+
+  marcarVisibles() {
+    const s = new Set(this.elegidos());
+    for (const t of this.visibles()) { if (s.size >= MAX_PARADAS) break; if (direccionValida(t)) s.add(t.id); }
+    this.elegidos.set(s);
+  }
+
   optimizar() {
-    const sel = this.visibles().filter((t) => this.elegidos().has(t.id) && direccionValida(t));
-    if (sel.length < 2) { this.sesion.avisar('Selecciona al menos 2 talleres con dirección', false); return; }
-    if (sel.length > 9) { this.sesion.avisar(`Google Maps admite 9 paradas por ruta: tienes ${sel.length}. Desmarca algunas o filtra por rubro.`, false); return; }
+    const sel = this.todos().filter((t) => this.elegidos().has(t.id));
     if (!navigator.geolocation) { this.sesion.avisar('Este dispositivo no entrega ubicación', false); return; }
     this.optimizando.set(true);
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude: lat, longitude: lng } = pos.coords;
       try {
         const r = await this.api.optimizarRuta(lat, lng, sel.map((t) => t.id), this.volver());
-        this.resultado.set({ km: r.km, minutos: r.minutos });
         const porId = new Map(sel.map((t) => [t.id, t]));
         this.rutaEnCurso.iniciar(r.ids.map((id, i) => {
           const t = porId.get(id)!;
@@ -158,16 +196,7 @@ export class Ruta implements OnInit {
     { enableHighAccuracy: true, timeout: 15000 });
   }
 
-  abrir(items: Taller[]) {
-    let sel = items.filter((t) => this.elegidos().has(t.id));
-    if (!sel.length) { this.sesion.avisar('Selecciona al menos un taller con dirección', false); return; }
-    if (sel.length > MAX_PARADAS) {
-      if (!confirm(`Google Maps funciona mejor con hasta ${MAX_PARADAS} paradas. ¿Abrir con las primeras ${MAX_PARADAS}?`)) return;
-      sel = sel.slice(0, MAX_PARADAS);
-    }
-    const url = urlRuta(sel);
-    if (url) window.open(url, '_blank', 'noopener');
-  }
+  limpiar() { this.elegidos.set(new Set()); }
 }
 
 // ─── Duplicados ──────────────────────────────────────────────────────────────

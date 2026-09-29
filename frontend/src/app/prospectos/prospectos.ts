@@ -43,13 +43,10 @@ function guardarPrefs(p: Record<string, any>) {
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button class="btn" (click)="nuevo.set(true)">＋ Agregar</button>
-        <select class="btn !pr-2" [ngModel]="''" (ngModelChange)="herramienta.set($event || null)">
-          <option value="">Herramientas…</option>
-          <option value="embudo">Panel de conversión</option>
-          <option value="ruta">Plan de ruta del día</option>
-          <option value="duplicados">Posibles duplicados</option>
-          <option value="pitch">Guía de pitch y objeciones</option>
-        </select>
+        <button class="btn" (click)="herramienta.set('ruta')">🧭 Plan de ruta</button>
+        <button class="btn" (click)="herramienta.set('embudo')">📊 Conversión</button>
+        <button class="btn" (click)="herramienta.set('duplicados')">⧉ Duplicados</button>
+        <button class="btn" (click)="herramienta.set('pitch')">💬 Pitch</button>
         <a class="btn" href="/api/export/excel">Excel</a>
         <button class="btn-primario btn" (click)="rastreo.set(true)">Rastrear talleres</button>
       </div>
