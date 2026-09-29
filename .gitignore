@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+build/
+dist/
+exports/
+recordings/
+*.db
+*.log
+*.lnk
+.env
