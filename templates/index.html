@@ -10,6 +10,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+  <script>
+    // Toda escritura a /api lleva X-Maza-CRM (ver solo_desde_el_crm en app.py):
+    // así una página ajena no puede disparar POST contra el CRM local.
+    (() => {
+      const original = window.fetch.bind(window);
+      window.fetch = (url, opts = {}) => {
+        const headers = new Headers(opts.headers || {});
+        headers.set('X-Maza-CRM', '1');
+        return original(url, { ...opts, headers });
+      };
+    })();
+  </script>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
@@ -138,6 +150,12 @@
             </button>
           </div>
         </details>
+
+        <!-- Cuentas de MAZA (ex /admin de la app) -->
+        <a href="/cuentas" class="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 transition" title="Planes y cuentas de MAZA">
+          <i data-lucide="users-round" class="h-4 w-4 text-slate-500"></i>
+          <span class="hidden md:inline">Cuentas MAZA</span>
+        </a>
 
         <!-- Botón Nuevo Rastreo -->
         <button onclick="openScraperModal()" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 px-4 py-2 text-xs font-extrabold text-white shadow-md shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]">

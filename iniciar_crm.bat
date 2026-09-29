@@ -9,5 +9,5 @@ echo Abriendo servidor en http://localhost:8000
 echo Puedes acceder desde tu notebook o celular (en la misma red).
 echo.
 start http://localhost:8000
-python -m uvicorn app:app --host 0.0.0.0 --port 8000
+python -m uvicorn app:app --host 127.0.0.1 --port 8000
 pause

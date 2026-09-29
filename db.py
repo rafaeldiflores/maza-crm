@@ -109,6 +109,11 @@ def init_db():
         cursor.execute("ALTER TABLE talleres ADD COLUMN fecha_inicio_prueba TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
+    # uid de la cuenta de MAZA del taller (vista /cuentas, maza_rutas.py).
+    try:
+        cursor.execute("ALTER TABLE talleres ADD COLUMN maza_uid TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
 
     conn.commit()
     conn.close()
@@ -250,10 +255,20 @@ def get_taller_by_id(taller_id: int) -> Optional[Dict[str, Any]]:
     conn.close()
     return dict(row) if row else None
 
+def get_vinculos_maza() -> Dict[str, Dict[str, Any]]:
+    """{uid de MAZA: taller del CRM} para los talleres ya vinculados."""
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nombre, comuna, estado, maza_uid FROM talleres WHERE maza_uid != ''")
+    rows = {r["maza_uid"]: {k: r[k] for k in ("id", "nombre", "comuna", "estado")} for r in cursor.fetchall()}
+    conn.close()
+    return rows
+
 def update_taller(taller_id: int, fields: Dict[str, Any]) -> bool:
     allowed = {
         "estado", "prioridad", "interes", "encargado_nombre",
-        "observaciones", "telefono", "whatsapp_link", "proximo_contacto", "fecha_ultima_visita"
+        "observaciones", "telefono", "whatsapp_link", "proximo_contacto", "fecha_ultima_visita",
+        "maza_uid",
     }
     updates = []
     params = []

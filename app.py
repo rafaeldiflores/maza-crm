@@ -14,25 +14,37 @@ from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, Request, UploadFile, File, Form, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 
 import db
 from config import PRESETS_ZONAS, RUBROS_MAP, WHATSAPP_TEMPLATES
 from ai_analyzer import analyze_meeting
+import maza_rutas
 
 # Inicializar Base de Datos
 db.init_db()
 
 app = FastAPI(title="MAZA - CRM & Prospección Regional de Talleres")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# El CRM es solo de este PC: el servidor escucha en 127.0.0.1 (run_crm.py,
+# iniciar_crm.*) y no hay CORS, así que ninguna otra página del navegador
+# puede leer sus respuestas. TrustedHost corta el DNS rebinding (una página
+# ajena que resuelve su dominio a 127.0.0.1 llega con otro Host).
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+
+
+@app.middleware("http")
+async def solo_desde_el_crm(request: Request, call_next):
+    """Sin CORS una página ajena no lee las respuestas, pero sí puede DISPARAR
+    un POST simple (un <form> apuntando a localhost). Toda escritura exige un
+    header propio (las páginas del CRM lo agregan en su fetch): un header no
+    estándar obliga al navegador a pedir permiso (preflight), y sin CORS ese
+    permiso nunca se da."""
+    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.headers.get("x-maza-crm") != "1":
+            return JSONResponse({"detail": "Falta el header X-Maza-CRM."}, status_code=403)
+    return await call_next(request)
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -92,6 +104,15 @@ class TallerCreate(BaseModel):
     rubro: str = "General"
     direccion: str = ""
     telefono: str = ""
+
+app.include_router(maza_rutas.router)
+
+
+@app.get("/cuentas", response_class=HTMLResponse)
+async def serve_cuentas():
+    with open(TEMPLATES_DIR / "cuentas.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
@@ -481,4 +502,4 @@ if __name__ == "__main__":
     print(" INICIANDO PANEL CRM & SCRAPER REGIONAL MAZA")
     print(" Abre en tu navegador: http://localhost:8000")
     print("="*60 + "\n")
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)

@@ -8,3 +8,4 @@ recordings/
 *.log
 *.lnk
 .env
+.venv/

@@ -15,7 +15,7 @@ Combina **extracción automatizada de Google Maps**, un **panel CRM interactivo*
    - Acceso inmediato con 1 clic a **WhatsApp** (con mensaje precargado) y **Google Maps** (GPS).
 
 2. **Grabadora de Visitas / Reuniones y Transcripción**:
-   - Graba notas de voz o reuniones directamente desde el navegador (en tu laptop o celular).
+   - Graba notas de voz o reuniones directamente desde el navegador del notebook.
    - **Transcripción de voz en tiempo real** utilizando el micrófono y la Web Speech API en español.
    - Almacenamiento local de audios en la carpeta `recordings/`.
 
@@ -65,7 +65,30 @@ python run_crm.py
 Luego abre en tu navegador:
 👉 **[http://localhost:8000](http://localhost:8000)**
 
-*(También puedes abrirlo desde el navegador de tu celular si ambos dispositivos están conectados a la misma red Wi-Fi o Hotspot, usando la IP local de tu notebook).*
+*(Solo se abre en este PC: el servidor escucha en 127.0.0.1, ver «Cuentas MAZA» más abajo.)*
+
+---
+
+## 🔐 Cuentas MAZA (`/cuentas`)
+
+Reemplaza al panel `/admin` que vivía dentro de la app de MAZA. Desde el botón **Cuentas MAZA** del encabezado:
+
+- Lista de talleres con su plan real (prueba, prueba vencida, Taller Solo, Taller Pro, Empresa), vencimiento y uso del trial.
+- Ficha de cada cuenta: uso (clientes, órdenes, repuestos), equipo, último acceso y últimos movimientos.
+- **Cambiar plan**, vigencia, asientos de Empresa, fundador y Mercado Pago Connect. El cambio llega también al equipo del taller (los mecánicos lo ven al instante).
+- **Crear cuenta** (taller que pagó por fuera, cuenta de revisión de Google Play) y **cambiar contraseña**.
+- **Vincular** la cuenta con su taller del CRM: la etapa del embudo pasa sola a «En prueba 14 días» o «Cliente Activo» según el plan real (botón *Sincronizar embudo*).
+- Pestañas de **Soporte** (tickets de la app), **Errores** (los que reporta la app) y **Auditoría**.
+
+**Primera vez en un PC:** `gcloud auth application-default login` con la cuenta dueña del proyecto de Firebase. No se descargan claves: el CRM usa esas credenciales y, si vencen, la pantalla lo avisa.
+
+**Seguridad:**
+- El servidor escucha solo en `127.0.0.1`: nadie más en el Wi-Fi puede abrirlo. Por eso la grabadora se usa en este PC, no desde el celular.
+- Sin CORS y con `TrustedHost`: otras páginas del navegador no pueden leerlo ni usarlo.
+- Toda escritura exige el header `X-Maza-CRM` (lo pone la propia página).
+- Cada cambio queda en la colección `adminAuditoria` de Firestore (quién, cuándo, antes y después). Las reglas no dejan que ningún cliente la lea.
+
+**Probar sin tocar producción:** con el emulador de Firebase de Maza-app corriendo (`npm run emulators` + `npm run sembrar`), arranca el CRM con `MAZA_EMULADOR=1`. El encabezado muestra EMULADOR en vez de PRODUCCIÓN.
 
 ---
 

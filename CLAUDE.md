@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-MAZA CRM: a local FastAPI + SQLite CRM for prospecting Chilean workshops (mecánica, motos, bicis, detailing, desabolladura, lubricentro), fed by a Playwright scraper of Google Maps. UI text, comments and data are in Spanish. The project is not a git repo and has no test suite or linter.
+MAZA CRM: a local FastAPI + SQLite CRM for prospecting Chilean workshops (mecánica, motos, bicis, detailing, desabolladura, lubricentro), fed by a Playwright scraper of Google Maps. UI text, comments and data are in Spanish. Git repo `rafaeldiflores/scraper-talleres` (private). No test suite or linter.
+
+It is also the **back office of MAZA** (`/cuentas`, replaces the old `/admin` of the MAZA app): plans, account creation, password resets, support tickets and error logs, against the production Firebase project. Treat it as privileged tooling: it must stay local-only (see Security).
 
 ## Commands
 
@@ -12,7 +14,7 @@ MAZA CRM: a local FastAPI + SQLite CRM for prospecting Chilean workshops (mecán
 python -m pip install -r requirements.txt
 python -m playwright install chromium        # once; only the scraper needs it
 python run_crm.py                            # full app: server + browser + (tray icon when frozen) on :8000
-python -m uvicorn app:app --host 0.0.0.0 --port 8000   # server only (what iniciar_crm.bat does)
+python -m uvicorn app:app --host 127.0.0.1 --port 8000   # server only (what iniciar_crm.bat does)
 python main.py --preset valpo_litoral --rubro motos --max 15 [--visual] [--concurrency 3]   # scraper CLI (also interactive with no args); writes exports/talleres_prospeccion_*.xlsx/csv
 python -m PyInstaller MazaCRM.spec --noconfirm   # builds dist/MazaCRM/MazaCRM.exe
 ```
@@ -29,9 +31,23 @@ python -m PyInstaller MazaCRM.spec --noconfirm   # builds dist/MazaCRM/MazaCRM.e
 - `main.py` — CLI front end to the same scraper (bypasses the UI, still uses `db.get_seen_keys()` but writes exports rather than saving into the DB).
 - `run_crm.py` — launcher/entry point for the PyInstaller build.
 
+## Security (do not relax)
+
+- The server binds to `127.0.0.1` only (`run_crm.py`, `app.py`, `iniciar_crm.*`). Never `0.0.0.0`: it holds admin powers over MAZA.
+- No CORS middleware; `TrustedHostMiddleware` allows only `localhost`/`127.0.0.1` (DNS rebinding).
+- `solo_desde_el_crm` in `app.py` rejects any non-GET `/api/*` without `X-Maza-CRM: 1`; both templates wrap `window.fetch` to add it. New pages must do the same.
+
+## Cuentas MAZA
+
+- `maza_admin.py` — firebase-admin with Application Default Credentials (`gcloud auth application-default login`), no key files. Mirrors MAZA's data model (`users/{uid}`, `empleados` mirror, `errores`, `tickets`) and its trial rules (`TRIAL_*` must match `PlanService`/`worker.js` in Maza-app). Every write goes through `_auditar()` → `adminAuditoria`. `MAZA_EMULADOR=1` targets the Firebase emulator (`demo-litoralbikes`).
+- `maza_rutas.py` — `/api/maza/*` router (sync `def` routes: firebase-admin blocks). `ErrorAdmin` → 400 with the message for the UI.
+- `templates/cuentas.html` — the `/cuentas` page (same Tailwind CDN style as `index.html`).
+- `talleres.maza_uid` links a CRM workshop to its MAZA account; `estado_crm_para()` derives the funnel stage from the real plan.
+- Test against the emulator, never production, when developing.
+
 ## Frozen (.exe) gotchas
 
 - Path handling is duplicated in `run_crm.py`, `app.py` and `db.py`: when `sys.frozen`, user data (`crm_talleres.db`, `exports/`, `recordings/`, `maza_crm.log`) lives next to the .exe, while bundled `templates/` and `static/` come from `sys._MEIPASS`. Keep that split when adding files.
 - The windowed build has `sys.stdout/stderr = None`, so `run_crm.py` redirects them to `maza_crm.log`; don't remove that or `print()` in the scraper will crash the app.
-- `MazaCRM.spec` needs new modules listed in `hiddenimports` and new asset folders in `datas`.
+- `MazaCRM.spec` needs new modules listed in `hiddenimports` and new asset folders in `datas`. firebase-admin/Firestore/grpc are pulled with `collect_all` at the top of the spec.
 - `build/`, `dist/` and `exports/` are generated artifacts, not source.

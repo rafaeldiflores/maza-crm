@@ -76,7 +76,7 @@ def start_server():
     no está en el hilo principal y evita instalar signal handlers (que solo
     funcionan en el hilo principal), por lo que este patrón es seguro."""
     global _server
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    config = uvicorn.Config(app, host="127.0.0.1", port=8000, log_level="info")
     _server = uvicorn.Server(config)
     _server.run()
 
