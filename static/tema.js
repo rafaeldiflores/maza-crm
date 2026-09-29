@@ -40,6 +40,17 @@
       color: #181818; border-bottom: 3px solid transparent; margin-bottom: -3px; white-space: nowrap; }
     #barra-nav a:hover { background: #f3f3f3; }
     #barra-nav a.activa { border-bottom-color: #032d60; font-weight: 700; background: #eef4ff; }
+    html, body { max-width: 100%; overflow-x: hidden; }
+    /* Celular: el encabezado de cada página se apila y los botones bajan de
+       línea en vez de empujar la página hacia el lado. */
+    @media (max-width: 767px) {
+      header.cabecera-pagina { margin: 8px 8px 0; padding: 10px !important; }
+      header.cabecera-pagina > div, header.cabecera-pagina > div > div { flex-wrap: wrap !important; gap: 8px !important; }
+      header.cabecera-pagina > div > div:last-child { width: 100%; justify-content: flex-start; }
+      #barra-usuario { display: none; }
+      main, .max-w-7xl { padding-left: 8px !important; padding-right: 8px !important; }
+      .fixed.inset-0 > div, .fixed.inset-0 > form, .fixed.inset-0 > aside { max-width: 100vw !important; }
+    }
     /* Etapas del embudo (path) */
     .etapas { display: flex; gap: 2px; margin: 8px 0; overflow-x: auto; }
     .etapas button { flex: 1 0 auto; min-width: 96px; padding: 0 16px; white-space: nowrap; position: relative; height: 30px; font-size: 11.5px; font-weight: 600; background: #ecebea;
