@@ -1,9 +1,13 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { Api } from '../core/api';
+import { Presets } from '../core/modelos';
 import { RutaEnCurso } from '../core/ruta-en-curso';
+import { FichaTaller } from '../prospectos/ficha-taller';
 
 /** Barra flotante de la ruta en curso + checklist de paradas + aviso de cercanía. */
 @Component({
   selector: 'app-panel-ruta',
+  imports: [FichaTaller],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (r.ruta(); as ruta) {
@@ -12,6 +16,7 @@ import { RutaEnCurso } from '../core/ruta-en-curso';
           <p class="text-sm">📍 Estás en <b>{{ c.nombre }}</b></p>
           <div class="mt-2 flex gap-2">
             <button class="btn" (click)="r.marcar(c, 'visitado')">Marcar visitado</button>
+            <button class="btn" (click)="abrirFicha(c.id)">Ficha</button>
             <button class="btn !bg-transparent !text-white" (click)="r.ignorarCerca()">Todavía no</button>
           </div>
         </div>
@@ -32,11 +37,13 @@ import { RutaEnCurso } from '../core/ruta-en-curso';
               <div class="flex items-center gap-2 px-4 py-2" [class.opacity-50]="p.estado !== 'pendiente'">
                 <span class="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-bold"
                       [class]="p.estado === 'visitado' ? 'bg-emerald-600 text-white' : p.estado === 'saltado' ? 'bg-slate-300' : 'bg-marca-800 text-white'">{{ p.estado === 'visitado' ? '✓' : i + 1 }}</span>
-                <div class="min-w-0 flex-1"><p class="truncate text-sm font-semibold" [class.line-through]="p.estado === 'saltado'">{{ p.nombre }}</p><p class="truncate text-[11px] text-slate-500">{{ p.direccion }}, {{ p.comuna }}</p></div>
+                <button type="button" class="min-w-0 flex-1 text-left" title="Abrir ficha" (click)="abrirFicha(p.id)"><p class="truncate text-sm font-semibold underline decoration-dotted underline-offset-2" [class.line-through]="p.estado === 'saltado'">{{ p.nombre }}</p><p class="truncate text-[11px] text-slate-500">{{ p.direccion }}, {{ p.comuna }}</p></button>
                 @if (p.estado === 'pendiente') {
                   <button class="btn !px-2" title="Navegar a esta" (click)="r.abrirMaps(p)">🧭</button>
                   <button class="btn !px-2" title="Saltar" (click)="r.marcar(p, 'saltado')">⤼</button>
                   <button class="btn-wa btn !px-2" (click)="r.marcar(p, 'visitado')">✓ Visitado</button>
+                } @else {
+                  <button class="btn !px-2" title="Deshacer" (click)="r.deshacer(p)">↶ Deshacer</button>
                 }
               </div>
             }
@@ -48,11 +55,21 @@ import { RutaEnCurso } from '../core/ruta-en-curso';
         </div>
       }
     }
+    @if (ficha(); as id) { <app-ficha-taller [id]="id" [presets]="presets()" (cerrar)="ficha.set(null)" /> }
   `,
 })
 export class PanelRuta {
   protected r = inject(RutaEnCurso);
+  private api = inject(Api);
   ocupado = signal(false);
+  ficha = signal<number | null>(null);
+  presets = signal<Presets | null>(null);
+
+  /** En terreno: abre la ficha del taller para anotar correo, encargado o la visita. */
+  abrirFicha(id: number) {
+    this.ficha.set(id);
+    if (!this.presets()) this.api.presets().then((p) => this.presets.set(p)).catch(() => {});
+  }
   async reoptimizar() { this.ocupado.set(true); await this.r.reoptimizar(); this.ocupado.set(false); }
   terminar() {
     const n = this.r.pendientes().length;

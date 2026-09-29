@@ -191,10 +191,23 @@ def optimizar_ruta(p: RutaPedido):
 def visita_rapida(taller_id: int):
     """Marca la visita desde la ruta en curso: deja registro y pasa el taller a
     Contactado si estaba por visitar (lo hace db.add_reunion)."""
-    if not db.get_taller_by_id(taller_id):
+    t = db.get_taller_by_id(taller_id)
+    if not t:
         raise HTTPException(status_code=404, detail="Taller no encontrado")
-    db.add_reunion(taller_id, {"tipo": "Visita en ruta", "resultado": "Pendiente", "notas": "Visitado desde la ruta del día."})
-    return {"ok": True, "taller": db.get_taller_by_id(taller_id)}
+    reunion_id = db.add_reunion(taller_id, {
+        "tipo": "Visita en ruta", "resultado": "Pendiente", "notas": "Visitado desde la ruta del día.",
+        "anterior": {"estado": t["estado"], "fecha_ultima_visita": t.get("fecha_ultima_visita")},
+    })
+    return {"ok": True, "reunion_id": reunion_id, "taller": db.get_taller_by_id(taller_id)}
+
+
+@app.delete("/api/talleres/{taller_id}/visita-rapida")
+@app.delete("/api/talleres/{taller_id}/visita-rapida/{reunion_id}")
+def deshacer_visita_rapida(taller_id: int, reunion_id: Optional[int] = None):
+    """Deshace una visita marcada por error desde la ruta en curso (sin id: la última)."""
+    if not db.deshacer_visita_rapida(taller_id, reunion_id):
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    return {"ok": True}
 
 
 @app.get("/api/config")

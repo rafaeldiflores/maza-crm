@@ -9,6 +9,8 @@ export interface Parada {
   lat: number | null;
   lng: number | null;
   estado: 'pendiente' | 'visitado' | 'saltado';
+  /** Registro de la visita rápida, para poder deshacerla. */
+  reunionId?: number;
 }
 
 interface Ruta { paradas: Parada[]; volver: boolean; km: number; minutos: number }
@@ -70,14 +72,26 @@ export class RutaEnCurso {
   }
 
   async marcar(p: Parada, estado: 'visitado' | 'saltado') {
+    let reunionId: number | undefined;
     if (estado === 'visitado') {
-      try { await this.api.visitaRapida(p.id); } catch (e) { this.sesion.avisar(mensajeError(e), false); return; }
+      try { reunionId = (await this.api.visitaRapida(p.id)).reunion_id; } catch (e) { this.sesion.avisar(mensajeError(e), false); return; }
     }
     const r = this.ruta()!;
-    this.guardar({ ...r, paradas: r.paradas.map((x) => (x.id === p.id ? { ...x, estado } : x)) });
+    this.guardar({ ...r, paradas: r.paradas.map((x) => (x.id === p.id ? { ...x, estado, reunionId } : x)) });
     if (this.cerca()?.id === p.id) this.cerca.set(null);
     this.sesion.avisar(estado === 'visitado' ? `${p.nombre}: visitado` : `${p.nombre}: saltado`);
     if (!this.pendientes().length) this.sesion.avisar('¡Ruta completada!');
+  }
+
+  /** Vuelve la parada a pendiente; si era visita, borra el registro en el CRM. */
+  async deshacer(p: Parada) {
+    if (p.estado === 'visitado') {
+      try { await this.api.deshacerVisitaRapida(p.id, p.reunionId); } catch (e) { this.sesion.avisar(mensajeError(e), false); return; }
+    }
+    const r = this.ruta()!;
+    this.guardar({ ...r, paradas: r.paradas.map((x) => (x.id === p.id ? { ...x, estado: 'pendiente' as const, reunionId: undefined } : x)) });
+    this.ignoradas.add(p.id);
+    this.sesion.avisar(`${p.nombre}: vuelve a pendiente`);
   }
 
   ignorarCerca() { const c = this.cerca(); if (c) this.ignoradas.add(c.id); this.cerca.set(null); }

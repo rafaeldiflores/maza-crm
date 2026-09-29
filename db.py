@@ -552,6 +552,8 @@ def add_reunion(taller_id: int, data: Dict[str, Any]) -> int:
         "acuerdos": data.get("acuerdos", ""),
         "resultado": data.get("resultado", "Pendiente"),
     }
+    if "anterior" in data:
+        fila["anterior"] = data["anterior"]
     _col(COL_REUNIONES).document(str(reunion_id)).set(fila)
     with _lock:
         _reuniones[reunion_id] = {"id": reunion_id, **fila}
@@ -585,6 +587,42 @@ def get_reunion(reunion_id: int) -> Optional[Dict[str, Any]]:
     if not r or not t:
         return None
     return {**r, "taller_nombre": t["nombre"], "taller_rubro": t["rubro"]}
+
+
+def deshacer_visita_rapida(taller_id: int, reunion_id: Optional[int] = None) -> bool:
+    """Borra una visita en ruta marcada por error (la indicada o, sin id, la más
+    reciente del taller) y deja el taller como estaba, salvo lo que se haya
+    cambiado después (no pisa una etapa o visita más nueva)."""
+    with _lock:
+        if reunion_id is None:
+            en_ruta = [r for r in _reuniones.values() if r["taller_id"] == int(taller_id) and r.get("tipo") == "Visita en ruta"]
+            r = max(en_ruta, key=lambda x: x["id"]) if en_ruta else None
+        else:
+            r = _reuniones.get(int(reunion_id))
+        if r:
+            reunion_id = r["id"]
+            otras = [x for x in _reuniones.values() if x["taller_id"] == int(taller_id) and x["id"] != reunion_id]
+            contactado_manual = any(h.get("taller_id") == int(taller_id) and h.get("estado_nuevo") == "Contactado" for h in _historial.values())
+    if not r or r["taller_id"] != int(taller_id) or r.get("tipo") != "Visita en ruta":
+        return False
+    anterior = dict(r.get("anterior") or {})
+    if "estado" not in anterior and not otras and not contactado_manual:
+        # Visita anterior a guardar "anterior": add_reunion solo pasa a Contactado desde "Por consultar".
+        anterior["estado"] = "Por consultar"
+    if "fecha_ultima_visita" not in anterior:
+        anterior["fecha_ultima_visita"] = max((x["fecha"] for x in otras), default=None)
+    t = get_taller_by_id(taller_id)
+    _col(COL_REUNIONES).document(str(reunion_id)).delete()
+    with _lock:
+        _reuniones.pop(int(reunion_id), None)
+    if t:
+        cambios: Dict[str, Any] = {}
+        if t.get("fecha_ultima_visita") == r["fecha"]:
+            cambios["fecha_ultima_visita"] = anterior.get("fecha_ultima_visita")
+        if "estado" in anterior and t["estado"] == "Contactado" and anterior["estado"] != "Contactado":
+            cambios["estado"] = anterior["estado"]
+        _actualizar_taller_doc(int(taller_id), cambios)
+    return True
 
 
 def update_reunion(reunion_id: int, fields: Dict[str, Any]) -> None:
