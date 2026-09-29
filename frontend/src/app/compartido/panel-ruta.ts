@@ -24,12 +24,12 @@ import { FichaTaller } from '../prospectos/ficha-taller';
 
       @if (!r.abierta()) {
         <button class="fixed bottom-4 right-4 z-[45] rounded-full bg-marca-800 px-4 py-3 text-sm font-bold text-white shadow-xl" (click)="r.abierta.set(true)">
-          🧭 Ruta {{ r.hechas() }}/{{ ruta.paradas.length }}
+          🧭 Ruta {{ r.hechas() }}/{{ ruta.paradas.length }}{{ r.sinSubir() ? ' ⚠️' : '' }}
         </button>
       } @else {
         <div class="fixed inset-x-0 bottom-0 z-[45] mx-auto max-h-[70vh] max-w-2xl overflow-y-auto rounded-t-xl border border-borde bg-white shadow-2xl">
           <div class="sticky top-0 flex items-center justify-between border-b border-borde bg-fondo px-4 py-2">
-            <div><p class="text-sm font-bold">Ruta en curso · {{ r.hechas() }}/{{ ruta.paradas.length }}</p><p class="text-[11px] text-slate-500">{{ ruta.km }} km · {{ ruta.minutos }} min estimados{{ ruta.volver ? ' · con vuelta' : '' }}</p></div>
+            <div><p class="text-sm font-bold">Ruta en curso · {{ r.hechas() }}/{{ ruta.paradas.length }}</p><p class="text-[11px] text-slate-500">{{ ruta.km }} km · {{ ruta.minutos }} min estimados{{ ruta.volver ? ' · con vuelta' : '' }}{{ r.sinSubir() ? ' · ⚠️ sin señal, se guarda al volver' : ' · ☁️ guardada' }}</p></div>
             <button class="rounded p-1.5 text-slate-500 hover:bg-slate-200" (click)="r.abierta.set(false)">▾</button>
           </div>
           <div class="divide-y divide-borde">

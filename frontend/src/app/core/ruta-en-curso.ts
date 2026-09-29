@@ -14,7 +14,11 @@ export interface Parada {
   reunionId?: number;
 }
 
-interface Ruta { paradas: Parada[]; volver: boolean; km: number; minutos: number }
+interface Ruta {
+  paradas: Parada[]; volver: boolean; km: number; minutos: number;
+  /** Marca de tiempo del último cambio: gana la copia más nueva (teléfono o servidor). */
+  actualizada: number;
+}
 
 const CLAVE = 'maza_crm_ruta';
 const RADIO_M = 120;
@@ -33,7 +37,10 @@ const MAX_PARADAS = 9;
 
 /**
  * Ruta del día en curso: el orden óptimo como checklist. Se guarda en el
- * dispositivo (sobrevive a cerrar la app). Con la app abierta sigue el GPS y
+ * dispositivo y en el servidor (/api/ruta-en-curso): si Android cierra la PWA,
+ * se borran los datos o se abre en otro equipo, se restaura sola al abrir o al
+ * volver a la app. Sin señal queda pendiente de subir y se reintenta al
+ * recuperar conexión. Con la app abierta sigue el GPS y
  * avisa al llegar a menos de RADIO_M de una parada pendiente; el navegador no
  * permite seguirlo en segundo plano.
  */
@@ -44,18 +51,73 @@ export class RutaEnCurso {
   readonly ruta = signal<Ruta | null>(this.leer());
   readonly abierta = signal(false);
   readonly cerca = signal<Parada | null>(null);
+  /** Hay cambios que todavía no llegan al servidor (sin señal). */
+  readonly sinSubir = signal(false);
   private vigia: number | null = null;
   private ignoradas = new Set<number>();
 
   readonly pendientes = computed(() => this.ruta()?.paradas.filter((p) => p.estado === 'pendiente') ?? []);
   readonly hechas = computed(() => (this.ruta()?.paradas.length ?? 0) - this.pendientes().length);
 
-  constructor() { if (this.ruta()) this.vigilar(); }
+  constructor() {
+    if (this.ruta()) { this.vigilar(); this.abierta.set(this.pendientes().length > 0); }
+    this.sincronizar(true);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') this.sincronizar(false); });
+    window.addEventListener('online', () => this.sincronizar(false));
+  }
 
-  private leer(): Ruta | null { try { return JSON.parse(localStorage.getItem(CLAVE) || 'null'); } catch { return null; } }
-  private guardar(r: Ruta | null) {
+  private leer(): Ruta | null {
+    try {
+      const r = JSON.parse(localStorage.getItem(CLAVE) || 'null');
+      return r ? { ...r, actualizada: r.actualizada ?? 0 } : null;
+    } catch { return null; }
+  }
+  private local(r: Ruta | null) {
     this.ruta.set(r);
     try { r ? localStorage.setItem(CLAVE, JSON.stringify(r)) : localStorage.removeItem(CLAVE); } catch { /* sin storage */ }
+  }
+  private guardar(r: Omit<Ruta, 'actualizada'> | null) {
+    const nueva = r ? { ...r, actualizada: Date.now() } : null;
+    this.local(nueva);
+    this.subir(nueva);
+  }
+  private async subir(r: Ruta | null) {
+    try {
+      if (r) {
+        const res = await this.api.guardarRutaEnCurso(r);
+        if (!res.ok && res.ruta) this.local(res.ruta);  // otro dispositivo tenía algo más nuevo
+      } else await this.api.borrarRutaEnCurso();
+      this.sinSubir.set(false);
+      try { localStorage.removeItem(CLAVE + '_sin_subir'); } catch { /* sin storage */ }
+    } catch {
+      this.sinSubir.set(true);
+      try { localStorage.setItem(CLAVE + '_sin_subir', '1'); } catch { /* sin storage */ }
+    }
+  }
+
+  /**
+   * Junta la copia del teléfono con la del servidor: gana la más nueva. Si el
+   * teléfono tiene cambios sin subir, los sube. Corre al abrir, al volver a la
+   * app (p. ej. desde Maps) y al recuperar señal.
+   */
+  async sincronizar(alAbrir: boolean) {
+    const local = this.ruta();
+    let pendienteSubir = this.sinSubir();
+    try { pendienteSubir ||= localStorage.getItem(CLAVE + '_sin_subir') === '1'; } catch { /* sin storage */ }
+    if (pendienteSubir) { await this.subir(local); if (this.sinSubir()) return; }
+    try {
+      const { ruta: remota } = await this.api.rutaEnCurso();
+      if (remota && (!local || remota.actualizada > local.actualizada)) {
+        this.local(remota);
+        this.vigilar();
+        if (alAbrir || !local) { this.abierta.set(true); this.sesion.avisar('Ruta en curso restaurada'); }
+      } else if (local && (!remota || local.actualizada > remota.actualizada)) {
+        // El servidor no la tiene o está atrasado: se sube. Nunca se descarta la
+        // copia del teléfono por no estar en el servidor (podría ir en camino).
+        this.subir(local.actualizada ? local : { ...local, actualizada: Date.now() });
+      }
+    } catch { /* sin señal: sigue la copia del teléfono */ }
+    this.vigilar();
   }
 
   iniciar(paradas: Omit<Parada, 'estado'>[], volver: boolean, km: number, minutos: number) {
@@ -146,7 +208,7 @@ export class RutaEnCurso {
   }
 
   private vigilar() {
-    if (this.vigia !== null || !navigator.geolocation) return;
+    if (this.vigia !== null || !navigator.geolocation || !this.ruta()) return;
     this.vigia = navigator.geolocation.watchPosition((pos) => {
       const aqui = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       const p = this.pendientes().find((x) => x.lat != null && x.lng != null && !this.ignoradas.has(x.id) &&

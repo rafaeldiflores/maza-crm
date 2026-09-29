@@ -57,6 +57,9 @@ export class Api {
   optimizarRuta = (lat: number, lng: number, ids: number[], volver: boolean) =>
     this.post<{ ids: number[]; coords: { lat: number; lng: number }[]; km: number; minutos: number }>('/api/ruta/optimizar', { lat, lng, ids, volver });
   visitaRapida = (id: number) => this.post<{ ok: boolean; reunion_id: number }>(`/api/talleres/${id}/visita-rapida`);
+  rutaEnCurso = () => this.get<{ ruta: any | null }>('/api/ruta-en-curso');
+  guardarRutaEnCurso = (ruta: unknown) => firstValueFrom(this.http.put<{ ok: boolean; ruta?: any }>('/api/ruta-en-curso', ruta));
+  borrarRutaEnCurso = () => this.delete('/api/ruta-en-curso');
   deshacerVisitaRapida = (id: number, reunionId?: number) => this.delete(`/api/talleres/${id}/visita-rapida${reunionId != null ? '/' + reunionId : ''}`);
   duplicados = () => this.get<{ motivo: string; detalle: string; talleres: Pick<Taller, 'id' | 'nombre' | 'comuna' | 'telefono' | 'estado'>[] }[]>('/api/duplicados');
   iniciarRastreo = (d: { comunas: string[]; rubros: string[]; max_per_query: number; evaluar_ia: boolean }) => this.post('/api/scrape/start', d);

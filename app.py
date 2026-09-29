@@ -4,6 +4,7 @@ Proporciona la interfaz gráfica, grabación de audio, CRM y ejecución de scrap
 """
 
 import asyncio
+import json
 import os
 import sys
 import subprocess
@@ -23,6 +24,7 @@ from ai_analyzer import analyze_meeting
 import ajustes
 import maza_admin
 import maza_rutas
+import nube
 
 # Cargar el CRM desde Firestore (ver db.py). Si no hay red o credenciales, el
 # servidor arranca igual y /api responde 503 con el motivo, que index.html
@@ -207,6 +209,45 @@ def deshacer_visita_rapida(taller_id: int, reunion_id: Optional[int] = None):
     """Deshace una visita marcada por error desde la ruta en curso (sin id: la última)."""
     if not db.deshacer_visita_rapida(taller_id, reunion_id):
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+    return {"ok": True}
+
+
+# ─── Ruta en curso ────────────────────────────────────────────────────────────
+# Copia en el servidor de la ruta del día (una por usuario de IAP), para que se
+# restaure si Android cierra la PWA, se borran los datos del navegador o se
+# abre en otro dispositivo. El teléfono sigue siendo la copia de trabajo.
+
+def _ruta_ref():
+    return nube.firestore_db().collection("crmRutas").document(maza_admin.actor().replace("/", "_"))
+
+
+@app.get("/api/ruta-en-curso")
+def leer_ruta_en_curso():
+    snap = _ruta_ref().get()
+    d = snap.to_dict() if snap.exists else None
+    return {"ruta": json.loads(d["ruta"]) if d and d.get("ruta") else None}
+
+
+@app.put("/api/ruta-en-curso")
+def guardar_ruta_en_curso(ruta: Dict[str, Any]):
+    paradas = ruta.get("paradas")
+    if not isinstance(paradas, list) or not 0 < len(paradas) <= 30 or not isinstance(ruta.get("actualizada"), (int, float)):
+        raise HTTPException(status_code=400, detail="Ruta inválida.")
+    texto = json.dumps(ruta, ensure_ascii=False)
+    if len(texto) > 60_000:
+        raise HTTPException(status_code=400, detail="Ruta demasiado grande.")
+    ref = _ruta_ref()
+    snap = ref.get()
+    previa = json.loads(snap.to_dict()["ruta"]) if snap.exists and snap.to_dict().get("ruta") else None
+    if previa and previa.get("actualizada", 0) > ruta["actualizada"]:
+        return {"ok": False, "ruta": previa}  # otro dispositivo guardó algo más nuevo
+    ref.set({"ruta": texto, "fecha": datetime.now().isoformat(timespec="seconds")})
+    return {"ok": True}
+
+
+@app.delete("/api/ruta-en-curso")
+def borrar_ruta_en_curso():
+    _ruta_ref().delete()
     return {"ok": True}
 
 
