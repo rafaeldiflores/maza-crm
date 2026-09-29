@@ -94,6 +94,16 @@ import { COLOR_PLAN, textoUso } from './comun';
           </div>
         </div>
 
+        <!-- Zona de peligro -->
+        <div class="space-y-2 rounded-lg border border-red-300 bg-red-50/50 p-3">
+          <p class="font-bold text-red-700">Eliminar cuenta</p>
+          <p class="text-xs text-slate-600">Borra el taller, sus órdenes, clientes, caja, fotos y el acceso. El equipo queda desvinculado. No se puede deshacer.</p>
+          <div class="flex gap-2">
+            <input class="campo" [placeholder]="'Escribe ' + c.email" [(ngModel)]="confirmacion" />
+            <button class="btn-peligro btn" [disabled]="confirmacion.trim().toLowerCase() !== c.email.toLowerCase() || eliminando()" (click)="eliminar()">{{ eliminando() ? 'Eliminando…' : 'Eliminar' }}</button>
+          </div>
+        </div>
+
         <div class="space-y-1 text-xs">
           <p class="titulo-seccion">Últimos movimientos</p>
           @for (t of d.resumen.ultimasTransacciones; track t.id) {
@@ -120,6 +130,8 @@ export class FichaCuenta implements OnInit {
   pago = { monto: null as number | null, meses: 1, medio: 'Transferencia', nota: '' };
   vinculo: number | null = null;
   clave = '';
+  confirmacion = '';
+  eliminando = signal(false);
 
   uso = textoUso; f = fecha; fh = fechaHora; pesos = plata; generar = generarClave;
   ok = (x: unknown) => !!x;
@@ -179,6 +191,17 @@ export class FichaCuenta implements OnInit {
       this.sesion.avisar('Vínculo guardado');
       this.cargar();
     } catch (e) { this.sesion.avisar(mensajeError(e), false); }
+  }
+
+  async eliminar() {
+    const c = this.d()!.cuenta;
+    this.eliminando.set(true);
+    try {
+      await this.api.eliminarCuenta(c.uid, this.confirmacion);
+      this.sesion.avisar(`Cuenta ${c.email} eliminada`);
+      this.cerrar.emit();
+    } catch (e) { this.sesion.avisar(mensajeError(e), false); }
+    finally { this.eliminando.set(false); }
   }
 
   async cambiarClave() {

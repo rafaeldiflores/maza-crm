@@ -35,23 +35,27 @@ import { COLOR_PLAN, textoUso } from './comun';
       <select class="campo !w-auto" [ngModel]="orden()" (ngModelChange)="orden.set($event)">
         <option value="creadoEn">Más recientes</option><option value="vence">Vencen antes</option><option value="nombre">Nombre</option>
       </select>
+      @if (marcadas().size) {
+        <button class="btn-peligro btn" (click)="eliminarMarcadas()">Eliminar {{ marcadas().size }} seleccionadas</button>
+      }
     </section>
 
     <div class="tarjeta overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-fondo text-left text-[11px] uppercase text-slate-500">
-          <tr><th class="px-3 py-2">Taller</th><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Vence / uso</th><th class="hidden px-3 py-2 md:table-cell">CRM</th><th class="hidden px-3 py-2 md:table-cell">Alta</th></tr>
+          <tr><th class="w-8 px-3 py-2"><input type="checkbox" [checked]="marcadas().size && marcadas().size === lista().length" (change)="marcarTodas($any($event.target).checked)" /></th><th class="px-3 py-2">Taller</th><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Vence / uso</th><th class="hidden px-3 py-2 md:table-cell">CRM</th><th class="hidden px-3 py-2 md:table-cell">Alta</th></tr>
         </thead>
         <tbody>
           @for (c of lista(); track c.uid) {
             <tr class="cursor-pointer border-t border-borde hover:bg-marca-50" (click)="abierta.set(c.uid)">
+              <td class="px-3 py-2" (click)="$event.stopPropagation()"><input type="checkbox" [checked]="marcadas().has(c.uid)" (change)="marcar(c.uid)" /></td>
               <td class="px-3 py-2"><p class="font-bold">{{ c.nombreTaller || '(sin nombre)' }} @if (c.esFundador) { <span class="text-[10px] text-amber-700">★ {{ c.numeroFundador }}</span> }</p><p class="text-xs text-slate-500">{{ c.email }}</p></td>
               <td class="px-3 py-2"><span class="insignia" [class]="colorPlan[c.modo]">{{ plan[c.modo] }}</span></td>
               <td class="px-3 py-2 text-xs">{{ uso(c) }}</td>
               <td class="hidden px-3 py-2 text-xs md:table-cell">{{ c.crm?.nombre || '—' }}</td>
               <td class="hidden px-3 py-2 text-xs text-slate-500 md:table-cell">{{ f(c.creadoEn) }}</td>
             </tr>
-          } @empty { <tr><td colspan="5" class="px-3 py-8 text-center text-slate-500">{{ cargando() ? 'Cargando…' : 'Sin resultados' }}</td></tr> }
+          } @empty { <tr><td colspan="6" class="px-3 py-8 text-center text-slate-500">{{ cargando() ? 'Cargando…' : 'Sin resultados' }}</td></tr> }
         </tbody>
       </table>
     </div>
@@ -91,6 +95,7 @@ export class Cuentas implements OnInit {
   creando = signal(false);
   talleresCrm = signal<Taller[]>([]);
   nueva: any = {};
+  marcadas = signal(new Set<string>());
   uso = textoUso; f = fecha; generar = generarClave;
 
   kpis = computed(() => {
@@ -130,6 +135,31 @@ export class Cuentas implements OnInit {
       await this.cargar();
       this.abierta.set(r.uid);
     } catch (e) { this.sesion.avisar(mensajeError(e), false); }
+  }
+
+  marcar(uid: string) { const s = new Set(this.marcadas()); s.has(uid) ? s.delete(uid) : s.add(uid); this.marcadas.set(s); }
+  marcarTodas(on: boolean) { this.marcadas.set(on ? new Set(this.lista().map((c) => c.uid)) : new Set()); }
+
+  /** Borrado en lote (cuentas de prueba): se confirma escribiendo ELIMINAR y la
+   * cantidad; cada cuenta va con su propio correo como confirmación al backend. */
+  async eliminarMarcadas() {
+    const sel = this.cuentas().filter((c) => this.marcadas().has(c.uid));
+    const pagando = sel.filter((c) => ['pro', 'ilimitado', 'empresa'].includes(c.modo));
+    const aviso = pagando.length ? `
+
+Ojo: ${pagando.length} tienen un plan pagado vigente.` : '';
+    const frase = `ELIMINAR ${sel.length}`;
+    if (prompt(`Vas a borrar ${sel.length} cuentas con todos sus datos. No se puede deshacer.${aviso}
+
+Escribe «${frase}» para confirmar:`) !== frase) return;
+    let ok = 0;
+    for (const c of sel) {
+      try { await this.api.eliminarCuenta(c.uid, c.email); ok++; }
+      catch (e) { this.sesion.avisar(`${c.email}: ${mensajeError(e)}`, false); }
+    }
+    this.sesion.avisar(`${ok} de ${sel.length} cuentas eliminadas`);
+    this.marcadas.set(new Set());
+    this.cargar();
   }
 
   async sincronizar() {

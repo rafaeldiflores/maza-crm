@@ -623,3 +623,61 @@ def metricas(salud: List[Dict[str, Any]], pagos: List[Dict[str, Any]]) -> Dict[s
         "porRubro": conversion(lambda c: c["tipoTaller"]),
         "porCiudad": conversion(lambda c: c["ciudad"]),
     }
+
+
+# ─── Eliminar cuenta ──────────────────────────────────────────────────────────
+# Mismo recorrido que /cuenta/eliminar del Worker (eliminarCuentaDueno /
+# eliminarCuentaMecanico): equipo desvinculado, tokens de Mercado Pago,
+# índices propios, fotos en Storage, árbol users/{uid} y la cuenta de Auth.
+# Irreversible: la UI pide escribir el correo para confirmar.
+
+def eliminar_cuenta(uid: str, confirmacion: str) -> Dict[str, Any]:
+    from google.cloud.firestore_v1 import DELETE_FIELD
+
+    db = _db()
+    ref = db.collection("users").document(uid)
+    snap = ref.get()
+    p = (snap.to_dict() or {}) if snap.exists else {}
+    email = (p.get("email") or "").lower()
+    if snap.exists and confirmacion.strip().lower() != email:
+        raise ErrorAdmin("Para eliminar, escribe el correo exacto de la cuenta.")
+
+    tipo = "sin_perfil"
+    if snap.exists:
+        taller = p.get("tallerId")
+        if taller and taller != uid:
+            tipo = "mecanico"
+            db.collection("users").document(taller).collection("empleados").document(uid).delete()
+        else:
+            tipo = "dueno"
+            db.collection("mpTokens").document(uid).delete()
+            for e in ref.collection("empleados").stream():
+                if e.id != uid:
+                    miembro = db.collection("users").document(e.id)
+                    if miembro.get().exists:
+                        miembro.update({"tallerId": DELETE_FIELD, "rol": DELETE_FIELD})
+            for coleccion, campo_id, campo_dueno in (
+                ("usernames", "username", "uid"),
+                ("codigosTaller", "codigoTaller", "ownerId"),
+                ("codigosReferido", "codigoReferido", "ownerId"),
+            ):
+                doc_id = p.get(campo_id)
+                if doc_id:
+                    idx = db.collection(coleccion).document(str(doc_id))
+                    d = idx.get()
+                    if d.exists and (d.to_dict() or {}).get(campo_dueno) == uid:
+                        idx.delete()
+        # Auditoría antes de borrar: después ya no queda qué mostrar.
+        _auditar("eliminar_cuenta", uid, {k: _serializable(p.get(k)) for k in ("email", "nombreTaller", "plan", "planVigenteHasta")},
+                 None, {"email": p.get("email"), "tipo": tipo})
+        b = nube.bucket()
+        if b is not None:
+            for blob in b.list_blobs(prefix=f"users/{uid}/"):
+                blob.delete()
+        db.recursive_delete(ref)
+
+    try:
+        _auth().delete_user(uid, app=_app())
+    except _auth().UserNotFoundError:
+        pass
+    return {"tipo": tipo, "email": p.get("email")}

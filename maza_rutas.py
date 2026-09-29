@@ -216,3 +216,16 @@ def registrar_pago(uid: str, pago: Pago):
 @router.get("/metricas")
 def metricas():
     return maza_admin.metricas(_llamar(maza_admin.salud_cuentas), _llamar(maza_admin.listar_pagos))
+
+
+class Eliminacion(BaseModel):
+    confirmacion: str
+
+
+@router.post("/cuentas/{uid}/eliminar")
+def eliminar(uid: str, e: Eliminacion):
+    r = _llamar(maza_admin.eliminar_cuenta, uid, e.confirmacion)
+    vinculo = db.get_vinculos_maza().get(uid)
+    if vinculo:
+        db.update_taller(vinculo["id"], {"maza_uid": ""})
+    return r

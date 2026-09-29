@@ -66,6 +66,7 @@ export class Api {
   guardarPlan = (uid: string, d: unknown) => this.post<{ cambio: boolean; miembrosEspejados?: number }>(`/api/maza/cuentas/${encodeURIComponent(uid)}/plan`, d);
   registrarPago = (uid: string, d: unknown) => this.post<{ vigenteHasta: string }>(`/api/maza/cuentas/${encodeURIComponent(uid)}/pago`, d);
   cambiarClave = (uid: string, password: string) => this.post(`/api/maza/cuentas/${encodeURIComponent(uid)}/password`, { password });
+  eliminarCuenta = (uid: string, confirmacion: string) => this.post<{ tipo: string }>(`/api/maza/cuentas/${encodeURIComponent(uid)}/eliminar`, { confirmacion });
   crearCuenta = (d: unknown) => this.post<{ uid: string }>('/api/maza/cuentas', d);
   vincular = (tallerCrmId: number, uid: string | null) => this.post('/api/maza/vincular', { tallerCrmId, uid });
   sincronizar = () => this.post<{ cambios: number }>('/api/maza/sincronizar');
