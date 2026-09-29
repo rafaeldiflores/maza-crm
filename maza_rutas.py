@@ -169,3 +169,50 @@ def resolver(ticket_id: str, r: TicketRespuesta):
 @router.get("/auditoria")
 def auditoria():
     return _llamar(maza_admin.listar_auditoria)
+
+
+# ─── Salud, cobros y métricas ─────────────────────────────────────────────────
+
+class Pago(BaseModel):
+    monto: int
+    medio: str = "Transferencia"
+    meses: int = 1
+    nota: str = ""
+
+
+def _aplicar_onboarding(salud):
+    """Marca solos en el checklist del CRM los pasos que MAZA confirma."""
+    vinculos = db.get_vinculos_maza()
+    for c in salud:
+        v = vinculos.get(c["uid"])
+        c["crm"] = v
+        if not v:
+            continue
+        hechos = {p["key"] for p in db.get_onboarding(v["id"]) if p["completado"]}
+        for clave, ok in c["pasos"].items():
+            if ok and clave not in hechos:
+                db.set_onboarding_paso(v["id"], clave, True)
+
+
+@router.get("/salud")
+def salud():
+    filas = _llamar(maza_admin.salud_cuentas)
+    _aplicar_onboarding(filas)
+    return filas
+
+
+@router.get("/pagos")
+def pagos():
+    return _llamar(maza_admin.listar_pagos)
+
+
+@router.post("/cuentas/{uid}/pago")
+def registrar_pago(uid: str, pago: Pago):
+    r = _llamar(maza_admin.registrar_pago, uid, pago.monto, pago.medio, pago.meses, pago.nota)
+    _sincronizar_uno(uid)
+    return r
+
+
+@router.get("/metricas")
+def metricas():
+    return maza_admin.metricas(_llamar(maza_admin.salud_cuentas), _llamar(maza_admin.listar_pagos))

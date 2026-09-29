@@ -60,9 +60,12 @@
 
     <!-- Pestañas -->
     <nav class="flex gap-1 border-b border-slate-200 text-sm font-bold">
+      <button data-tab="hoy" class="tab px-3 py-2">Hoy <span id="n-hoy" class="text-red-600"></span></button>
       <button data-tab="cuentas" class="tab px-3 py-2">Cuentas</button>
       <button data-tab="tickets" class="tab px-3 py-2">Soporte <span id="n-tickets" class="text-amber-600"></span></button>
       <button data-tab="errores" class="tab px-3 py-2">Errores <span id="n-errores" class="text-red-600"></span></button>
+      <button data-tab="cobros" class="tab px-3 py-2">Cobros</button>
+      <button data-tab="metricas" class="tab px-3 py-2">Métricas</button>
       <button data-tab="auditoria" class="tab px-3 py-2">Auditoría</button>
     </nav>
 
@@ -98,6 +101,9 @@
     <section id="tab-tickets" class="hidden space-y-2"></section>
     <section id="tab-errores" class="hidden space-y-2"></section>
     <section id="tab-auditoria" class="hidden"></section>
+    <section id="tab-hoy" class="hidden space-y-2"></section>
+    <section id="tab-cobros" class="hidden space-y-3"></section>
+    <section id="tab-metricas" class="hidden space-y-4"></section>
   </main>
 
   <!-- Panel de detalle -->
@@ -311,6 +317,20 @@ function pintarFicha(d) {
       <button class="w-full rounded-xl bg-slate-900 hover:bg-slate-800 py-2 text-sm font-extrabold text-white">Guardar plan</button>
     </form>
 
+    <form onsubmit="registrarPago(event, '${esc(c.uid)}')" class="space-y-2 rounded-2xl border border-slate-200 p-4">
+      <h3 class="font-extrabold">Registrar pago</h3>
+      <div class="grid grid-cols-3 gap-2">
+        <input name="monto" type="number" min="1" required placeholder="Monto" class="rounded-xl border border-slate-300 px-3 py-2 text-sm">
+        <select name="meses" class="rounded-xl border border-slate-300 px-3 py-2 text-sm">${[1, 3, 6, 12].map((m) => `<option value="${m}">${m} ${m === 1 ? 'mes' : 'meses'}</option>`).join('')}</select>
+        <select name="medio" class="rounded-xl border border-slate-300 px-3 py-2 text-sm"><option>Transferencia</option><option>Efectivo</option><option>Mercado Pago</option><option>Otro</option></select>
+      </div>
+      <input name="nota" placeholder="Nota (opcional)" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">
+      <p class="text-[11px] text-slate-500">Extiende la vigencia desde hoy o desde el vencimiento actual, lo que sea más tarde.</p>
+      <button class="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 py-2 text-sm font-extrabold text-white">Registrar pago</button>
+    </form>
+
+    <section id="notas-crm" class="space-y-1"></section>
+
     <section class="space-y-2 rounded-2xl border border-slate-200 p-4">
       <h3 class="font-extrabold">Taller en el CRM</h3>
       <div class="flex gap-2">
@@ -335,7 +355,97 @@ function pintarFicha(d) {
     </section>`;
   llenarSelectoresCrm(d.crm ? d.crm.id : '');
   iconos();
+  if (d.crm) api(`/api/talleres/${d.crm.id}`).then((t) => {
+    $('#notas-crm').innerHTML = `<h3 class="font-extrabold">Historial comercial <span class="text-xs font-normal text-slate-500">(${esc(t.taller.estado)})</span></h3>` +
+      (t.taller.observaciones ? `<p class="text-xs text-slate-600 whitespace-pre-wrap">${esc(t.taller.observaciones)}</p>` : '') +
+      (t.reuniones.map((r) => `<p class="text-xs border-b border-slate-100 py-1"><b>${esc(r.fecha.slice(0, 10))}</b> · ${esc(r.resultado)} — ${esc(r.notas || r.acuerdos)}</p>`).join('') || '<p class="text-xs text-slate-500">Sin visitas registradas.</p>');
+  }).catch(() => {});
 }
+
+// ─── Hoy: a quién llamar ─────────────────────────────────────────────────────
+const SALUD = { vencido: ['Prueba vencida', 'bg-red-50 text-red-700 border-red-200'], riesgo: ['En riesgo', 'bg-red-50 text-red-700 border-red-200'], renovar: ['Renovar', 'bg-amber-50 text-amber-700 border-amber-200'], tibio: ['Tibio', 'bg-amber-50 text-amber-700 border-amber-200'], sano: ['Sano', 'bg-emerald-50 text-emerald-700 border-emerald-200'] };
+const saludo = (c) => `Hola${c.nombreTaller ? ' ' + c.nombreTaller : ''}, soy Rafa de MAZA.`;
+const MENSAJE = {
+  vencido: (c) => `${saludo(c)} Tu prueba terminó: ¿te ayudo a dejar el plan activo para que no pierdas tus órdenes?`,
+  riesgo: (c) => `${saludo(c)} Vi que no has entrado estos días, ¿te trabaste en algo? Te ayudo en 5 minutos a dejar tu primera orden lista.`,
+  renovar: (c) => `${saludo(c)} Tu plan vence el ${fecha(c.planVigenteHasta)}; te dejo los datos para renovar y seguir sin cortes.`,
+  tibio: (c) => `${saludo(c)} ¿Probaste mandar un presupuesto por link? Al cliente le llega por WhatsApp y lo aprueba desde el celular.`,
+};
+function linkWa(tel, texto) {
+  const n = String(tel || '').replace(/\D/g, '');
+  return n ? `<a href="https://wa.me/${n}?text=${encodeURIComponent(texto)}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white">WhatsApp</a>` : '<span class="text-xs text-slate-400">sin teléfono</span>';
+}
+const insignia = (s) => `<span class="rounded-full border px-2 py-0.5 text-xs font-bold ${SALUD[s]?.[1] || ''}">${SALUD[s]?.[0] || s}</span>`;
+const PASOS = { cuenta_creada: 'Cuenta', primer_vehiculo: '1ª orden', usuarios_invitados: 'Equipo', primer_presupuesto: 'Link aprobado' };
+
+async function cargarHoy() {
+  const el = $('#tab-hoy');
+  el.innerHTML = '<p class="text-sm text-slate-500">Revisando el uso de cada cuenta…</p>';
+  try {
+    const [filas, seg] = await Promise.all([api('/api/maza/salud'), api('/api/talleres?vencidos=true')]);
+    const accion = filas.filter((c) => c.salud !== 'sano');
+    $('#n-hoy').textContent = accion.length ? `(${accion.length})` : '';
+    el.innerHTML = '<h3 class="font-extrabold">Cuentas que necesitan un llamado</h3>' + (accion.map((c) => `
+      <article class="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+        <div class="cursor-pointer" onclick="abrirCuenta('${esc(c.uid)}')"><p class="font-bold">${esc(c.nombreTaller || c.email)} ${insignia(c.salud)}</p>
+          <p class="text-xs text-slate-500">${esc(c.motivo)} · ${esc(NOMBRE[c.modo])} · ${Object.entries(c.pasos).map(([k, v]) => `${v ? '✓' : '·'} ${PASOS[k]}`).join('  ')}</p></div>
+        ${linkWa(c.telefono, (MENSAJE[c.salud] || MENSAJE.tibio)(c))}
+      </article>`).join('') || '<p class="text-sm text-slate-500">Todas las cuentas van bien.</p>') +
+      '<h3 class="font-extrabold pt-3">Prospectos con seguimiento vencido</h3>' + (seg.slice(0, 20).map((t) => `
+      <article class="flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white p-3">
+        <div><p class="font-bold">${esc(t.nombre)} <span class="text-xs text-slate-500">${esc(t.comuna)} · ${esc(t.estado)}</span></p><p class="text-xs text-slate-500">Tocaba el ${esc(String(t.proximo_contacto).slice(0, 10))}</p></div>
+        ${t.whatsapp_link && t.whatsapp_link !== 'N/A' ? `<a href="${esc(t.whatsapp_link)}" target="_blank" rel="noopener" class="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-bold text-white">WhatsApp</a>` : ''}
+      </article>`).join('') || '<p class="text-sm text-slate-500">Nada vencido.</p>');
+  } catch (e) { el.innerHTML = `<p class="text-sm text-red-600">${esc(e.message)}</p>`; }
+}
+
+// ─── Cobros ──────────────────────────────────────────────────────────────────
+async function registrarPago(ev, uid) {
+  ev.preventDefault();
+  const f = Object.fromEntries(new FormData(ev.target).entries());
+  if (!confirm(`¿Registrar ${plata(f.monto)} por ${f.meses} mes(es)?`)) return;
+  try {
+    const r = await api(`/api/maza/cuentas/${encodeURIComponent(uid)}/pago`, { method: 'POST', body: JSON.stringify({ ...f, monto: Number(f.monto), meses: Number(f.meses) }) });
+    toast(`Pago registrado. Vigente hasta ${fecha(r.vigenteHasta)}.`);
+    await cargar();
+    abrirCuenta(uid);
+  } catch (e) { toast(e.message, false); }
+}
+
+async function cargarCobros() {
+  const el = $('#tab-cobros');
+  el.innerHTML = '<p class="text-sm text-slate-500">Cargando…</p>';
+  try {
+    const [pagos, salud] = await Promise.all([api('/api/maza/pagos'), api('/api/maza/salud')]);
+    const renovar = salud.filter((c) => c.salud === 'renovar');
+    const quien = (uid) => { const c = cuentas.find((x) => x.uid === uid); return c ? (c.nombreTaller || c.email) : uid; };
+    el.innerHTML = '<h3 class="font-extrabold">Vencen en 7 días</h3>' + (renovar.map((c) => `
+      <article class="flex items-center justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50/40 p-3">
+        <div class="cursor-pointer" onclick="abrirCuenta('${esc(c.uid)}')"><p class="font-bold">${esc(c.nombreTaller || c.email)}</p><p class="text-xs text-slate-500">${esc(NOMBRE[c.modo])} · ${esc(c.motivo)}</p></div>
+        ${linkWa(c.telefono, MENSAJE.renovar(c))}
+      </article>`).join('') || '<p class="text-sm text-slate-500">Nada por vencer.</p>') +
+      `<h3 class="font-extrabold pt-3">Pagos</h3><div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table class="w-full text-xs">
+      <thead class="bg-slate-50 text-left uppercase text-slate-500"><tr><th class="px-3 py-2">Fecha</th><th class="px-3 py-2">Taller</th><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Meses</th><th class="px-3 py-2">Medio</th><th class="px-3 py-2 text-right">Monto</th></tr></thead>
+      <tbody>${pagos.map((x) => `<tr class="border-t border-slate-100"><td class="px-3 py-2">${fecha(x.fecha)}</td><td class="px-3 py-2">${esc(quien(x.uid))}</td><td class="px-3 py-2">${esc(NOMBRE[x.plan] || x.plan)}</td><td class="px-3 py-2">${x.meses}</td><td class="px-3 py-2">${esc(x.medio)}</td><td class="px-3 py-2 text-right font-bold">${plata(x.monto)}</td></tr>`).join('') || '<tr><td colspan="6" class="px-3 py-6 text-center text-slate-500">Sin pagos.</td></tr>'}</tbody></table></div>`;
+  } catch (e) { el.innerHTML = `<p class="text-sm text-red-600">${esc(e.message)}</p>`; }
+}
+
+// ─── Métricas ────────────────────────────────────────────────────────────────
+async function cargarMetricas() {
+  const el = $('#tab-metricas');
+  el.innerHTML = '<p class="text-sm text-slate-500">Calculando…</p>';
+  try {
+    const m = await api('/api/maza/metricas');
+    const tarjeta = (t, v) => `<div class="rounded-2xl border border-slate-200 bg-white p-3"><p class="text-[11px] font-bold uppercase text-slate-500">${t}</p><p class="text-2xl font-extrabold">${v}</p></div>`;
+    const barra = (etiqueta, pct, valor, color) => `<div class="flex items-center gap-2 text-xs py-0.5"><span class="w-28 truncate">${esc(etiqueta)}</span><div class="flex-1 h-2 rounded bg-slate-100"><div class="h-2 rounded ${color}" style="width:${pct}%"></div></div><span class="w-24 text-right">${valor}</span></div>`;
+    const tabla = (titulo, filas) => `<div class="rounded-2xl border border-slate-200 bg-white p-3"><h3 class="font-extrabold text-sm mb-2">${titulo}</h3>${filas.map((f) => barra(f.grupo, f.pct, `${f.pagando}/${f.total} · ${f.pct}%`, 'bg-emerald-500')).join('') || '<p class="text-xs text-slate-500">Sin datos.</p>'}</div>`;
+    const max = Math.max(1, ...m.ingresosPorMes.map((x) => x.monto));
+    el.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-5 gap-3">${tarjeta('MRR', plata(m.mrr))}${tarjeta('Pagando', m.pagando)}${tarjeta('En prueba', m.enPrueba)}${tarjeta('Pruebas vencidas', m.vencidas)}${tarjeta('En riesgo', m.enRiesgo)}</div>
+      <div class="rounded-2xl border border-slate-200 bg-white p-3"><h3 class="font-extrabold text-sm mb-2">Ingresos por mes</h3>${m.ingresosPorMes.map((x) => barra(x.mes, x.monto / max * 100, plata(x.monto), 'bg-amber-500')).join('') || '<p class="text-xs text-slate-500">Sin pagos todavía.</p>'}</div>
+      <div class="grid md:grid-cols-3 gap-3">${tabla('Conversión a pago por mes de alta', m.porMesDeAlta)}${tabla('Por rubro', m.porRubro)}${tabla('Por ciudad', m.porCiudad)}</div>`;
+  } catch (e) { el.innerHTML = `<p class="text-sm text-red-600">${esc(e.message)}</p>`; }
+}
+
 
 function sumarDias(n) {
   const input = document.querySelector('#form-plan [name=planVigenteHasta]');
@@ -442,7 +552,7 @@ async function cargarTickets() {
         ${x.estado === 'abierto' ? `
           <textarea id="resp-${esc(x.id)}" rows="2" placeholder="Respuesta (opcional, la ve el taller)" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"></textarea>
           <button onclick="resolverTicket('${esc(x.id)}')" class="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white">Marcar resuelto</button>`
-        : `<p class="text-xs text-emerald-700">Resuelto${x.respuesta ? ': ' + esc(x.respuesta) : ''}</p>`}
+        : `<p class="text-xs text-emerald-700">Resuelto${x.respuesta ? ': ' + esc(x.respuesta) : ''} ${linkWa(cuentas.find((c) => c.uid === x.uid)?.telefono, `Hola, te escribo de MAZA por tu reporte «${x.asunto}»: ${x.respuesta || 'ya quedó resuelto'}.`)}</p>`}
       </article>`).join('') || '<p class="text-sm text-slate-500">Sin tickets.</p>';
   } catch (e) { el.innerHTML = `<p class="text-sm text-red-600">${esc(e.message)}</p>`; }
 }
@@ -507,7 +617,10 @@ function cambiarPestana(t) {
     const activa = b.dataset.tab === t;
     b.className = `tab px-3 py-2 border-b-2 ${activa ? 'border-amber-500 text-slate-900' : 'border-transparent text-slate-500'}`;
   });
-  ['cuentas', 'tickets', 'errores', 'auditoria'].forEach((x) => $('#tab-' + x).classList.toggle('hidden', x !== t));
+  ['hoy', 'cuentas', 'tickets', 'errores', 'cobros', 'metricas', 'auditoria'].forEach((x) => $('#tab-' + x).classList.toggle('hidden', x !== t));
+  if (t === 'hoy') cargarHoy();
+  if (t === 'cobros') cargarCobros();
+  if (t === 'metricas') cargarMetricas();
   if (t === 'tickets') cargarTickets();
   if (t === 'errores') cargarErrores();
   if (t === 'auditoria') cargarAuditoria();
@@ -516,7 +629,7 @@ function cambiarPestana(t) {
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => cambiarPestana(b.dataset.tab)));
 ['#buscar', '#filtro-modo', '#orden'].forEach((s) => $(s).addEventListener('input', pintarCuentas));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { cerrarPanel(); cerrarCrear(); } });
-cambiarPestana('cuentas');
+cambiarPestana('hoy');
 cargar();
 iconos();
 </script>

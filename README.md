@@ -97,6 +97,11 @@ Reemplaza al panel `/admin` que vivía dentro de la app de MAZA. Desde el botón
 - **Cambiar plan**, vigencia, asientos de Empresa, fundador y Mercado Pago Connect. El cambio llega también al equipo del taller (los mecánicos lo ven al instante).
 - **Crear cuenta** (taller que pagó por fuera, cuenta de revisión de Google Play) y **cambiar contraseña**.
 - **Vincular** la cuenta con su taller del CRM: la etapa del embudo pasa sola a «En prueba 14 días» o «Cliente Activo» según el plan real (botón *Sincronizar embudo*).
+- **Hoy**: cuentas que necesitan un llamado según su uso real (nunca entró, días sin entrar, prueba por vencer, plan por renovar, prueba vencida) y prospectos con seguimiento vencido, con el WhatsApp ya escrito.
+- **Onboarding automático**: los pasos del checklist (primera orden, equipo invitado, primer presupuesto aprobado) se marcan solos leyendo MAZA.
+- **Cobros**: *Registrar pago* extiende la vigencia y deja constancia (`crmPagos`); la lista junta esos pagos con los de Mercado Pago y muestra lo que vence en 7 días.
+- **Métricas**: MRR, ingresos por mes y conversión a pago por mes de alta, rubro y ciudad.
+- En la ficha: historial comercial del CRM (visitas y notas) y referidos. Al resolver un ticket, botón para avisar por WhatsApp.
 - Pestañas de **Soporte** (tickets de la app), **Errores** (los que reporta la app) y **Auditoría**.
 
 **Primera vez en un PC:** `gcloud auth application-default login` con la cuenta dueña del proyecto de Firebase. No se descargan claves: el CRM usa esas credenciales y, si vencen, la pantalla lo avisa.

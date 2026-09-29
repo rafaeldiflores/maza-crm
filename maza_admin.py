@@ -452,3 +452,164 @@ def estado_crm_para(cuenta: Dict[str, Any]) -> Optional[str]:
     if modo == "trial":
         return "En prueba 14 días"
     return None  # prueba vencida: se deja la etapa que puso el vendedor
+
+
+# ─── Salud de las cuentas (uso real) ──────────────────────────────────────────
+# Señales baratas: el perfil (trial), el último acceso de Auth (una sola
+# llamada paginada) y conteos agregados (1 lectura cada uno). Nada de bajar
+# órdenes completas.
+
+PRECIO_MENSUAL = {"pro": 24990, "ilimitado": 39990, "empresa": 59990}  # = worker.js
+
+
+def _contar(query) -> int:
+    return int(query.count().get()[0][0].value)
+
+
+def _ultimos_accesos() -> Dict[str, Optional[datetime]]:
+    auth = _auth()
+    accesos = {}
+    for u in auth.list_users(app=_app()).iterate_all():
+        ms = u.user_metadata.last_sign_in_timestamp or u.user_metadata.last_refresh_timestamp
+        accesos[u.uid] = datetime.fromtimestamp(ms / 1000, timezone.utc) if ms else None
+    return accesos
+
+
+def _dias_desde(d: Optional[datetime]) -> Optional[int]:
+    return None if d is None else (datetime.now(timezone.utc) - d).days
+
+
+def _ultimo_dia_activo(p: Dict[str, Any]) -> Optional[datetime]:
+    dias = sorted(p.get("trialDiasActivos") or [])
+    return _fecha(dias[-1]) if dias else None
+
+
+def salud_cuentas() -> List[Dict[str, Any]]:
+    db = _db()
+    accesos = _ultimos_accesos()
+    usuarios = [(d.id, d.to_dict() or {}) for d in db.collection("users").stream()]
+    referidos: Dict[str, int] = {}
+    for _, p in usuarios:
+        if p.get("referidoPor"):
+            referidos[p["referidoPor"]] = referidos.get(p["referidoPor"], 0) + 1
+
+    filas = []
+    for uid, p in usuarios:
+        if not _es_titular(uid, p):
+            continue
+        ref = db.collection("users").document(uid)
+        uso = {
+            "catalogo": _contar(ref.collection("services")),
+            "clientes": _contar(ref.collection("clients")),
+            "equipo": _contar(ref.collection("empleados")),
+            "aprobaciones": _contar(db.collection("aprobaciones").where("tallerId", "==", uid)),
+        }
+        acceso = max([d for d in (accesos.get(uid), _ultimo_dia_activo(p)) if d], default=None)
+        sin_uso = _dias_desde(acceso)
+        f = _fila(uid, p)
+        pasos = {
+            "cuenta_creada": True,
+            "primer_vehiculo": uso["clientes"] > 0 or f["trialOrdenes"] > 0,
+            "usuarios_invitados": uso["equipo"] > 0,
+            "primer_presupuesto": uso["aprobaciones"] > 0,
+        }
+        estado, motivo = _diagnostico(f, sin_uso, pasos)
+        filas.append({
+            **f, "uso": uso, "pasos": pasos, "ultimoAcceso": acceso.isoformat() if acceso else None,
+            "diasSinUso": sin_uso, "salud": estado, "motivo": motivo,
+            "referidos": referidos.get(uid, 0),
+        })
+    orden = {"vencido": 0, "riesgo": 1, "renovar": 2, "tibio": 3, "sano": 4}
+    filas.sort(key=lambda x: (orden.get(x["salud"], 5), -(x["diasSinUso"] or 0)))
+    return filas
+
+
+def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, bool]):
+    modo = f["modo"]
+    if modo in PLANES_PAGO:
+        hasta = _fecha(f["planVigenteHasta"])
+        if hasta:
+            dias = (hasta - datetime.now(timezone.utc)).days
+            if dias <= 7:
+                return "renovar", f"Vence en {max(dias, 0)} días"
+        if sin_uso is not None and sin_uso >= 7:
+            return "riesgo", f"Pagando, {sin_uso} días sin usar"
+        return "sano", "Al día"
+    if modo == "trial_expirado":
+        return "vencido", "Prueba vencida sin pagar"
+    if modo != "trial":
+        return "sano", ""
+    hechos = sum(pasos.values())
+    if sin_uso is None or sin_uso >= 3:
+        return "riesgo", "Nunca entró" if sin_uso is None else f"{sin_uso} días sin entrar"
+    if f["trialDiasUsados"] >= 10:
+        return "riesgo", f"Le quedan {TRIAL_DIAS - f['trialDiasUsados']} días de prueba"
+    if hechos < 3 or sin_uso >= 2:
+        return "tibio", f"Onboarding {hechos}/4"
+    return "sano", f"Usando ({f['trialOrdenes']} órdenes)"
+
+
+# ─── Pagos y renovaciones ─────────────────────────────────────────────────────
+
+def registrar_pago(uid: str, monto: int, medio: str, meses: int, nota: str = "") -> Dict[str, Any]:
+    if monto <= 0 or not 1 <= meses <= 24:
+        raise ErrorAdmin("Monto mayor a 0 y entre 1 y 24 meses.")
+    ref = _db().collection("users").document(uid)
+    p = (ref.get().to_dict() or {})
+    if p.get("plan") not in PLANES_PAGO:
+        raise ErrorAdmin("Primero asigna un plan pagado a la cuenta.")
+    base = max(_fecha(p.get("planVigenteHasta")) or datetime.now(timezone.utc), datetime.now(timezone.utc))
+    nueva = (base + timedelta(days=30 * meses)).isoformat().replace("+00:00", "Z")
+    cambios = {**{k: p.get(k) for k in CAMPOS_PLAN}, "planVigenteHasta": nueva}
+    actualizar_plan(uid, cambios)
+    _db().collection("crmPagos").add({
+        "uid": uid, "email": p.get("email"), "monto": int(monto), "medio": medio, "meses": meses,
+        "plan": p.get("plan"), "nota": nota, "fecha": _ahora_iso(), "actor": actor(), "vigenteHasta": nueva,
+    })
+    return {"vigenteHasta": nueva}
+
+
+def listar_pagos() -> List[Dict[str, Any]]:
+    """Pagos manuales (crmPagos) + los de Mercado Pago que registra el Worker."""
+    db = _db()
+    pagos = [{"id": d.id, "origen": "manual", **_serializable(d.to_dict() or {})} for d in db.collection("crmPagos").stream()]
+    for d in db.collection("pagosMercadoPago").where("tipo", "==", "plan").stream():
+        x = d.to_dict() or {}
+        pagos.append({"id": d.id, "origen": "mercadopago", "uid": x.get("uid"), "monto": int(x.get("monto") or 0),
+                      "medio": "Mercado Pago", "plan": x.get("plan"), "meses": 12 if x.get("ciclo") == "anual" else 1,
+                      "fecha": _serializable(x.get("procesadoEn"))})
+    pagos.sort(key=lambda x: str(x.get("fecha") or ""), reverse=True)
+    return pagos
+
+
+# ─── Métricas ─────────────────────────────────────────────────────────────────
+
+def metricas(salud: List[Dict[str, Any]], pagos: List[Dict[str, Any]]) -> Dict[str, Any]:
+    pagando = [c for c in salud if c["modo"] in PLANES_PAGO]
+    mrr = sum(PRECIO_MENSUAL[c["modo"]] * ((1 - (c["descuentoFundador"] or 0)) if c["esFundador"] else 1) for c in pagando)
+    ingresos: Dict[str, int] = {}
+    for x in pagos:
+        mes = str(x.get("fecha") or "")[:7]
+        if mes:
+            ingresos[mes] = ingresos.get(mes, 0) + int(x.get("monto") or 0)
+
+    def conversion(clave):
+        grupos: Dict[str, Dict[str, int]] = {}
+        for c in salud:
+            g = grupos.setdefault(clave(c) or "—", {"total": 0, "pagando": 0})
+            g["total"] += 1
+            g["pagando"] += c["modo"] in PLANES_PAGO
+        return [{"grupo": k, **v, "pct": round(v["pagando"] / v["total"] * 100) if v["total"] else 0}
+                for k, v in sorted(grupos.items())]
+
+    return {
+        "mrr": round(mrr),
+        "pagando": len(pagando),
+        "enPrueba": sum(c["modo"] == "trial" for c in salud),
+        "vencidas": sum(c["modo"] == "trial_expirado" for c in salud),
+        "enRiesgo": sum(c["salud"] == "riesgo" for c in salud),
+        "ingresosPorMes": [{"mes": k, "monto": v} for k, v in sorted(ingresos.items())][-12:],
+        "porMesDeAlta": conversion(lambda c: (c["creadoEn"] or "")[:7]),
+        "porRubro": conversion(lambda c: c["tipoTaller"]),
+        "porCiudad": conversion(lambda c: c["ciudad"]),
+    }
