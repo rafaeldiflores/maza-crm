@@ -28,8 +28,8 @@ function distancia(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 
 /** Con el nombre adelante Maps rotula la parada con el taller y no con "A, B, C". */
 const texto = (p: Parada) => `${p.nombre}, ${p.direccion}, ${p.comuna}, Chile`;
-/** La app de Maps en el celular acepta como máximo 3 paradas intermedias por link. */
-const MAX_INTERMEDIAS = 3;
+/** Maps admite 10 puntos por ruta: la ubicación actual + 9 paradas. */
+const MAX_PARADAS = 9;
 
 /**
  * Ruta del día en curso: el orden óptimo como checklist. Se guarda en el
@@ -66,32 +66,23 @@ export class RutaEnCurso {
   }
 
   /**
-   * Link de Maps (formato api=1, el único que la app respeta con varias paradas)
-   * con el próximo tramo de pendientes: hasta 3 intermedias + destino. Sin
-   * origin, Maps parte de la ubicación actual. La vuelta solo entra si el
-   * tramo alcanza a cubrir todo lo que falta.
+   * Link de Maps con el próximo tramo de pendientes (hasta 9). Formato de ruta
+   * encadenada con origen vacío: Maps parte de la ubicación actual. El formato
+   * api=1 no sirve: en el celular corta en 3 paradas intermedias. La vuelta
+   * solo entra si el tramo cubre todo lo que falta.
    */
   urlMaps(desde?: { lat: number; lng: number }, soloHasta?: Parada) {
     const r = this.ruta();
     if (!r) return null;
     const pend = soloHasta ? [soloHasta] : this.pendientes();
     if (!pend.length) return null;
-    const vuelta = !soloHasta && r.volver && desde && pend.length <= MAX_INTERMEDIAS;
-    const tramo = vuelta ? pend : pend.slice(0, MAX_INTERMEDIAS + 1);
-    const intermedias = vuelta ? tramo : tramo.slice(0, -1);
-    const destino = vuelta ? null : tramo[tramo.length - 1];
-    const q = new URLSearchParams({ api: '1', travelmode: 'driving' });
-    q.set('destination', destino ? texto(destino) : `${desde!.lat},${desde!.lng}`);
-    if (destino?.placeId) q.set('destination_place_id', destino.placeId);
-    if (intermedias.length) {
-      q.set('waypoints', intermedias.map(texto).join('|'));
-      if (intermedias.every((p) => p.placeId)) q.set('waypoint_place_ids', intermedias.map((p) => p.placeId).join('|'));
-    }
-    return `https://www.google.com/maps/dir/?${q}`;
+    const puntos = pend.slice(0, MAX_PARADAS).map((p) => encodeURIComponent(texto(p)));
+    if (!soloHasta && r.volver && desde && pend.length < MAX_PARADAS) puntos.push(`${desde.lat},${desde.lng}`);
+    return `https://www.google.com/maps/dir//${puntos.join('/')}`;
   }
 
   /** Cuántas pendientes quedan fuera del link actual (tope de Maps en el celular). */
-  fueraDelTramo() { return Math.max(0, this.pendientes().length - (MAX_INTERMEDIAS + 1)); }
+  fueraDelTramo() { return Math.max(0, this.pendientes().length - MAX_PARADAS); }
 
   async marcar(p: Parada, estado: 'visitado' | 'saltado') {
     let reunionId: number | undefined;
@@ -140,7 +131,7 @@ export class RutaEnCurso {
 
   abrirMaps(hasta?: Parada) {
     const fuera = hasta ? 0 : this.fueraDelTramo();
-    if (fuera) this.sesion.avisar(`Maps muestra las próximas ${MAX_INTERMEDIAS + 1}; quedan ${fuera} para el siguiente tramo`);
+    if (fuera) this.sesion.avisar(`Maps muestra las próximas ${MAX_PARADAS}; quedan ${fuera} para el siguiente tramo`);
     navigator.geolocation.getCurrentPosition(
       (pos) => window.open(this.urlMaps({ lat: pos.coords.latitude, lng: pos.coords.longitude }, hasta)!, '_blank', 'noopener'),
       () => window.open(this.urlMaps(undefined, hasta)!, '_blank', 'noopener'),
@@ -150,7 +141,7 @@ export class RutaEnCurso {
   /** Abre el tramo desde una posición ya conocida (tras optimizar). */
   abrirUrl(desde: { lat: number; lng: number }) {
     const fuera = this.fueraDelTramo();
-    if (fuera) this.sesion.avisar(`Maps muestra las próximas ${MAX_INTERMEDIAS + 1}; quedan ${fuera} para el siguiente tramo`);
+    if (fuera) this.sesion.avisar(`Maps muestra las próximas ${MAX_PARADAS}; quedan ${fuera} para el siguiente tramo`);
     window.open(this.urlMaps(desde)!, '_blank', 'noopener');
   }
 
