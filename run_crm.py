@@ -76,7 +76,7 @@ def start_server():
     no está en el hilo principal y evita instalar signal handlers (que solo
     funcionan en el hilo principal), por lo que este patrón es seguro."""
     global _server
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    config = uvicorn.Config(app, host="127.0.0.1", port=8000, log_level="info")
     _server = uvicorn.Server(config)
     _server.run()
 
@@ -121,8 +121,8 @@ def main():
     print(f"Servidor activo en: {SERVER_URL}")
     print("=" * 60 + "\n")
 
-    # Inicializar DB
-    db.init_db()
+    # El CRM se carga desde Firestore al importar app (db.init_db); si falla,
+    # la interfaz lo muestra en un aviso en vez de cerrar el programa.
 
     # Servidor y navegador en hilos de fondo
     threading.Thread(target=start_server, daemon=True).start()

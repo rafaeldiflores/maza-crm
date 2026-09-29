@@ -1,11 +1,21 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+
+# firebase-admin y el cliente de Firestore cargan módulos, datos (protos) y
+# metadatos de paquetes por nombre: collect_all los arrastra completos.
+_extra_datas, _extra_bins, _extra_hidden = [], [], []
+for _paquete in ('firebase_admin', 'google.cloud.firestore', 'google.cloud.firestore_v1', 'google.cloud.storage', 'grpc'):
+    _d, _b, _h = collect_all(_paquete)
+    _extra_datas += _d
+    _extra_bins += _b
+    _extra_hidden += _h
 
 
 a = Analysis(
     ['run_crm.py'],
     pathex=[],
-    binaries=[],
-    datas=[('templates', 'templates'), ('static', 'static')],
+    binaries=_extra_bins,
+    datas=[('templates', 'templates'), ('static', 'static')] + _extra_datas,
     hiddenimports=[
         'uvicorn.logging',
         'uvicorn.loops.auto',
@@ -21,11 +31,14 @@ a = Analysis(
         'config',
         'ai_analyzer',
         'db',
+        'nube',
+        'maza_admin',
+        'maza_rutas',
         'pystray',
         'pystray._win32',
         'PIL',
         'PIL.Image',
-    ],
+    ] + _extra_hidden,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

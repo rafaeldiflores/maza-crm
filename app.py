@@ -14,25 +14,50 @@ from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, Request, UploadFile, File, Form, BackgroundTasks, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 
 import db
 from config import PRESETS_ZONAS, RUBROS_MAP, WHATSAPP_TEMPLATES
 from ai_analyzer import analyze_meeting
+import maza_rutas
 
-# Inicializar Base de Datos
-db.init_db()
+# Cargar el CRM desde Firestore (ver db.py). Si no hay red o credenciales, el
+# servidor arranca igual y /api responde 503 con el motivo, que index.html
+# muestra en un aviso: con un .exe sin consola no habría otra forma de verlo.
+ERROR_INICIO: Optional[str] = None
+try:
+    db.init_db()
+except Exception as e:  # noqa: BLE001
+    ERROR_INICIO = str(e)
 
 app = FastAPI(title="MAZA - CRM & Prospección Regional de Talleres")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# El CRM es solo de este PC: el servidor escucha en 127.0.0.1 (run_crm.py,
+# iniciar_crm.*) y no hay CORS, así que ninguna otra página del navegador
+# puede leer sus respuestas. TrustedHost corta el DNS rebinding (una página
+# ajena que resuelve su dominio a 127.0.0.1 llega con otro Host).
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1"])
+
+
+@app.middleware("http")
+async def solo_desde_el_crm(request: Request, call_next):
+    """Sin CORS una página ajena no lee las respuestas, pero sí puede DISPARAR
+    un POST simple (un <form> apuntando a localhost). Toda escritura exige un
+    header propio (las páginas del CRM lo agregan en su fetch): un header no
+    estándar obliga al navegador a pedir permiso (preflight), y sin CORS ese
+    permiso nunca se da."""
+    if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.headers.get("x-maza-crm") != "1":
+            return JSONResponse({"detail": "Falta el header X-Maza-CRM."}, status_code=403)
+    if ERROR_INICIO and request.url.path.startswith("/api/") and request.url.path != "/api/salud":
+        return JSONResponse({"detail": ERROR_INICIO}, status_code=503)
+    return await call_next(request)
+
+
+@app.get("/api/salud")
+def salud():
+    return {"ok": ERROR_INICIO is None, "error": ERROR_INICIO}
 
 if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).parent
@@ -51,14 +76,22 @@ if not STATIC_DIR.exists():
     STATIC_DIR = BASE_DIR / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-RECORDINGS_DIR = BASE_DIR / "recordings"
+RECORDINGS_DIR = db.RECORDINGS_DIR
 EXPORTS_DIR = BASE_DIR / "exports"
 
 RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
 EXPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-app.mount("/recordings", StaticFiles(directory=RECORDINGS_DIR), name="recordings")
+
+
+@app.get("/recordings/{filename}")
+def servir_grabacion(filename: str):
+    """La grabación desde este PC o, si se grabó en otro, bajada de Storage."""
+    ruta = db.ruta_audio_local(filename)
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="Grabación no encontrada")
+    return FileResponse(ruta, media_type="audio/webm")
 
 # Estado de tarea de scraping en segundo plano
 scrape_state = {
@@ -92,6 +125,15 @@ class TallerCreate(BaseModel):
     rubro: str = "General"
     direccion: str = ""
     telefono: str = ""
+
+app.include_router(maza_rutas.router)
+
+
+@app.get("/cuentas", response_class=HTMLResponse)
+async def serve_cuentas():
+    with open(TEMPLATES_DIR / "cuentas.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_index():
@@ -227,6 +269,7 @@ def estado_desde_resultado(resultado: str) -> str:
 
 @app.post("/api/reuniones")
 async def create_reunion(
+    background: BackgroundTasks,
     taller_id: int = Form(...),
     tipo: str = Form("Presencial"),
     duracion_segundos: int = Form(0),
@@ -237,7 +280,7 @@ async def create_reunion(
     encargado_nombre: str = Form(""),
     proximo_contacto: str = Form(""),
     prioridad: str = Form(""),
-    audio_file: Optional[UploadFile] = File(None)
+    audio_file: Optional[UploadFile] = File(None),
 ):
     taller = db.get_taller_by_id(taller_id)
     if not taller:
@@ -252,6 +295,8 @@ async def create_reunion(
         with open(file_path, "wb") as f:
             f.write(content)
         archivo_audio_rel = f"/recordings/{filename}"
+        # A Storage en segundo plano: la visita se guarda sin esperar la subida.
+        background.add_task(db.subir_audio, filename)
 
     # Generar informe / resumen si hay notas o transcripción
     full_text = f"{notas}\n{transcripcion}".strip()
@@ -293,25 +338,14 @@ async def create_reunion(
 
 @app.post("/api/reuniones/{reunion_id}/generar-informe")
 def generar_informe_reunion(reunion_id: int):
-    conn = db.get_db()
-    cursor = conn.cursor()
-    cursor.execute("SELECT r.*, t.nombre as taller_nombre, t.rubro as taller_rubro FROM reuniones r JOIN talleres t ON r.taller_id = t.id WHERE r.id = ?", (reunion_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
+    reunion = db.get_reunion(reunion_id)
+    if not reunion:
         raise HTTPException(status_code=404, detail="Reunión no encontrada")
 
-    reunion = dict(row)
     text = f"{reunion['notas']}\n{reunion['transcripcion']}".strip()
     ai_report = analyze_meeting(reunion["taller_nombre"], reunion["taller_rubro"], text)
 
-    # Actualizar resumen_ia
-    conn = db.get_db()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE reuniones SET resumen_ia = ? WHERE id = ?", (ai_report.get("resumen", ""), reunion_id))
-    conn.commit()
-    conn.close()
+    db.update_reunion(reunion_id, {"resumen_ia": ai_report.get("resumen", "")})
 
     return {"ok": True, "reporte": ai_report}
 
@@ -481,4 +515,4 @@ if __name__ == "__main__":
     print(" INICIANDO PANEL CRM & SCRAPER REGIONAL MAZA")
     print(" Abre en tu navegador: http://localhost:8000")
     print("="*60 + "\n")
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
