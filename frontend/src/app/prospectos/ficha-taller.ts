@@ -76,6 +76,13 @@ const CHIPS = [
           </div>
         </div>
 
+        <!-- Correo y beta tester -->
+        <div class="flex flex-wrap items-end gap-2 rounded-lg border border-borde p-3">
+          <div class="min-w-[220px] flex-1"><label class="etiqueta">Correo (Gmail para la prueba de Play)</label>
+            <input type="email" class="campo" placeholder="dueño@gmail.com" [(ngModel)]="correo" (blur)="guardarCorreo()" /></div>
+          <label class="flex items-center gap-2 pb-2 text-sm"><input type="checkbox" [checked]="t.beta_tester" (change)="marcarBeta($any($event.target).checked)" /> Beta tester</label>
+        </div>
+
         <!-- Checklist de la prueba -->
         @if ((t.estado === 'En prueba 14 días' || t.estado === 'Cliente Activo') && d.onboarding.length) {
           <div class="space-y-2 rounded-lg border border-purple-200 bg-purple-50/50 p-3">
@@ -180,6 +187,7 @@ export class FichaTaller implements OnInit, OnDestroy {
   private reconocimiento: any;
   private intervalo?: ReturnType<typeof setInterval>;
   private cambioPendiente = false;
+  correo = '';
 
   indiceEtapa = computed(() => ETAPAS.indexOf(this.d()?.taller.estado as Estado));
   prueba = computed(() => infoPrueba(this.d()?.taller.fecha_inicio_prueba));
@@ -198,6 +206,7 @@ export class FichaTaller implements OnInit, OnDestroy {
       const d = await this.api.taller(this.id());
       this.d.set(d);
       this.form.encargado = d.taller.encargado_nombre || '';
+      this.correo = d.taller.email || '';
       this.form.prioridad = d.taller.prioridad || 'Media';
       this.form.proximo = (d.taller.proximo_contacto || '').slice(0, 10);
     } catch (e) { this.sesion.avisar(mensajeError(e), false); this.cerrar.emit(); }
@@ -220,6 +229,21 @@ export class FichaTaller implements OnInit, OnDestroy {
     try { await this.api.evaluarIa(this.id()); this.cambioPendiente = true; await this.cargar(); }
     catch (e) { this.sesion.avisar(mensajeError(e), false); }
     finally { this.evaluando.set(false); }
+  }
+
+  async guardarCorreo() {
+    const email = this.correo.trim().toLowerCase();
+    if (email === (this.d()?.taller.email || '')) return;
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { this.sesion.avisar('Correo inválido', false); return; }
+    try { await this.api.actualizarTaller(this.id(), { email }); this.cambioPendiente = true; this.sesion.avisar('Correo guardado'); await this.cargar(); }
+    catch (e) { this.sesion.avisar(mensajeError(e), false); }
+  }
+
+  async marcarBeta(on: boolean) {
+    if (on && !this.correo.trim()) { this.sesion.avisar('Primero ingresa el correo', false); await this.cargar(); return; }
+    await this.guardarCorreo();
+    try { await this.api.actualizarTaller(this.id(), { beta_tester: on }); this.cambioPendiente = true; await this.cargar(); }
+    catch (e) { this.sesion.avisar(mensajeError(e), false); }
   }
 
   abrirPlantilla(k: string) {

@@ -28,6 +28,8 @@ export interface Taller {
   proximo_contacto: string | null;
   fecha_inicio_prueba: string;
   maza_uid: string;
+  email: string;
+  beta_tester: boolean;
   place_id: string;
   puntaje_ia: number | null;
   ia_calza: boolean | null;

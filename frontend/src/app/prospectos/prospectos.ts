@@ -43,6 +43,7 @@ function guardarPrefs(p: Record<string, any>) {
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <button class="btn" (click)="nuevo.set(true)">＋ Agregar</button>
+        <button class="btn" (click)="copiarTesters()" title="Correos de los talleres marcados como beta tester, para Play Console">🧪 Testers ({{ testers().length }})</button>
         <button class="btn" (click)="herramienta.set('ruta')">🧭 Plan de ruta</button>
         <button class="btn" (click)="herramienta.set('embudo')">📊 Conversión</button>
         <button class="btn" (click)="herramienta.set('duplicados')">⧉ Duplicados</button>
@@ -152,6 +153,7 @@ function guardarPrefs(p: Record<string, any>) {
           }
           @if (prueba(t); as p) { <span class="insignia" [class]="p.color">{{ p.vencida ? 'Prueba vencida' : 'Día ' + p.dia + '/14' }}</span> }
           @if (seg(t); as s) { <span class="insignia" [class]="s.color">{{ s.texto }}</span> }
+          @if (t.beta_tester) { <span class="insignia border-violet-200 bg-violet-50 text-violet-700">🧪 Tester</span> }
         </div>
         @if (!compacta) {
           <input class="campo !py-1.5 text-xs" placeholder="Nota rápida…" [ngModel]="t.observaciones" (change)="notaRapida(t, $any($event.target).value)" />
@@ -207,6 +209,16 @@ export class Prospectos implements OnInit {
   nuevo = signal(false);
   herramienta = signal<Herramienta>(null);
 
+  todosTalleres = signal<Taller[]>([]);
+  testers = computed(() => this.todosTalleres().filter((t) => t.beta_tester && t.email));
+
+  async copiarTesters() {
+    const lista = this.testers().map((t) => t.email).join(', ');
+    if (!lista) { this.sesion.avisar('Marca talleres como beta tester (con correo) en su ficha', false); return; }
+    await navigator.clipboard?.writeText(lista).catch(() => {});
+    this.sesion.avisar(`${this.testers().length} correos copiados para Play Console`);
+  }
+
   hayFiltros = computed(() => this.estado() !== 'Todos' || this.comuna() !== 'Todos' || this.rubro() !== 'Todos' ||
     this.soloWa() || this.vencidos() || !!this.busqueda());
 
@@ -235,7 +247,8 @@ export class Prospectos implements OnInit {
 
   async recargar() {
     try {
-      const [s, t] = await Promise.all([this.api.stats(), this.api.talleres(this.filtros())]);
+      const [s, t, todos] = await Promise.all([this.api.stats(), this.api.talleres(this.filtros()), this.api.talleres({})]);
+      this.todosTalleres.set(todos);
       this.stats.set(s);
       this.talleres.set(t);
     } catch (e) {

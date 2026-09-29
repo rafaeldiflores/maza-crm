@@ -17,6 +17,7 @@ import { Modal } from '../compartido/modal';
           <select class="campo" [(ngModel)]="d.rubro">@for (r of rubros(); track r) { <option [value]="r">{{ r }}</option> }</select></div>
       </div>
       <div><label class="etiqueta">Dirección</label><input class="campo" [(ngModel)]="d.direccion" /></div>
+      <div><label class="etiqueta">Correo</label><input type="email" class="campo" placeholder="dueño@gmail.com" [(ngModel)]="d.email" /></div>
       <div><label class="etiqueta">Teléfono</label><input class="campo font-mono" placeholder="+56912345678" [(ngModel)]="d.telefono" /></div>
       <button class="btn-primario btn w-full !py-2.5" (click)="guardar()">Agregar al CRM</button>
     </app-modal>
@@ -28,7 +29,7 @@ export class NuevoTaller {
   presets = input<Presets | null>(null);
   cerrar = output<void>();
   creado = output<void>();
-  d = { nombre: '', comuna: '', rubro: 'General', direccion: '', telefono: '' };
+  d = { nombre: '', comuna: '', rubro: 'General', direccion: '', telefono: '', email: '' };
   rubros = computed(() => ['General', ...Object.values(this.presets()?.rubros ?? {}).map((r) => r.nombre)]);
 
   async guardar() {

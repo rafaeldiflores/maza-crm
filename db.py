@@ -53,6 +53,7 @@ CAMPOS_TALLER = {
     "encargado_nombre": "", "observaciones": "", "fecha_creacion": None,
     "fecha_ultima_visita": None, "proximo_contacto": None, "fecha_inicio_prueba": "",
     "maza_uid": "",
+    "email": "", "beta_tester": False,
     # Places API + evaluación con IA (places.py, ia_prospectos.py)
     "place_id": "", "puntaje_ia": None, "ia_calza": None, "ia_rubros": [], "ia_multirubro": None,
     "ia_dolores": [], "ia_motivo": "", "ia_mensaje": "", "ia_evaluado_en": "",
@@ -382,7 +383,7 @@ def update_taller(taller_id: int, fields: Dict[str, Any]) -> bool:
     allowed = {
         "estado", "prioridad", "interes", "encargado_nombre",
         "observaciones", "telefono", "whatsapp_link", "proximo_contacto", "fecha_ultima_visita",
-        "maza_uid",
+        "maza_uid", "email", "beta_tester",
     }
     cambios = {k: v for k, v in fields.items() if k in allowed}
     actual = get_taller_by_id(taller_id)
@@ -726,6 +727,7 @@ def create_taller_manual(data: Dict[str, Any]) -> Optional[int]:
         "direccion": data.get("direccion", ""),
         "telefono": data.get("telefono", ""),
         "whatsapp_link": data.get("whatsapp_link", ""),
+        "email": (data.get("email") or "").strip().lower(),
         "estado": "Por consultar",
         "fecha_creacion": _ahora(),
     })
