@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import contextvars
 import os
+import re
+import unicodedata
 import shutil
 import subprocess
 from datetime import datetime, timezone, timedelta
@@ -175,6 +177,75 @@ def _fila(uid: str, p: Dict[str, Any]) -> Dict[str, Any]:
 
 def _es_titular(uid: str, p: Dict[str, Any]) -> bool:
     return not p.get("tallerId") or p.get("tallerId") == uid
+
+
+# ─── Nombre de taller único ──────────────────────────────────────────────────
+# Mismo índice que Maza-app (NombreTallerService): nombresTaller/{clave} →
+# {uid, nombre, creadoEn}, y el perfil guarda la clave en `nombreTallerClave`.
+# La clave tiene que salir IGUAL que normalizarNombreTaller() de
+# src/app/utils/validacion-registro.ts: si cambia allá, cambia acá.
+
+def normalizar_nombre_taller(nombre: str) -> str:
+    sin_tildes = "".join(
+        c for c in unicodedata.normalize("NFD", nombre or "") if unicodedata.category(c) != "Mn"
+    )
+    return re.sub(r"[^a-z0-9]+", "-", sin_tildes.lower()).strip("-")
+
+
+def _reservar_nombre(uid: str, nombre: str) -> str:
+    """Crea la reserva y anota la clave en el perfil. ErrorAdmin si es de otro."""
+    clave = normalizar_nombre_taller(nombre)
+    if not clave:
+        raise ErrorAdmin("El nombre del taller necesita letras o números.")
+    ref = _db().collection("nombresTaller").document(clave)
+    previo = ref.get()
+    if previo.exists:
+        if (previo.to_dict() or {}).get("uid") != uid:
+            raise ErrorAdmin(f'Ya existe un taller llamado "{nombre}".')
+    else:
+        ref.create({"uid": uid, "nombre": nombre.strip(), "creadoEn": _ahora_iso()})
+    _db().collection("users").document(uid).set({"nombreTallerClave": clave}, merge=True)
+    return clave
+
+
+def reservar_nombres_existentes(aplicar: bool = False) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Una vez: reserva el nombre de los talleres creados antes de que existiera
+    `nombresTaller`. Solo titulares con nombre y sin clave; los invitados
+    anónimos de antes no (las reglas no les dejan reservar y no son cuentas
+    reales). Dos talleres con el mismo nombre: se reserva el más antiguo y el
+    otro queda en `conflictos` para resolverlo a mano. Sin `aplicar`, solo
+    informa.
+    """
+    pendientes = []
+    for d in _db().collection("users").stream():
+        p = d.to_dict() or {}
+        if not _es_titular(d.id, p) or p.get("invitado") or p.get("nombreTallerClave"):
+            continue
+        nombre = (p.get("nombreTaller") or "").strip()
+        if not normalizar_nombre_taller(nombre):
+            continue
+        pendientes.append((str(p.get("creadoEn") or ""), d.id, nombre))
+    pendientes.sort()
+
+    resultado: Dict[str, List[Dict[str, Any]]] = {"reservados": [], "conflictos": []}
+    tomados: Dict[str, str] = {}
+    for _, uid, nombre in pendientes:
+        clave = normalizar_nombre_taller(nombre)
+        dueno = tomados.get(clave)
+        if dueno is None:
+            previo = _db().collection("nombresTaller").document(clave).get()
+            dueno = (previo.to_dict() or {}).get("uid") if previo.exists else None
+        fila = {"uid": uid, "nombre": nombre, "clave": clave}
+        if dueno and dueno != uid:
+            resultado["conflictos"].append({**fila, "tomadoPor": dueno})
+            continue
+        tomados[clave] = uid
+        if aplicar:
+            _reservar_nombre(uid, nombre)
+            _auditar("reservar_nombre_taller", uid, None, fila)
+        resultado["reservados"].append(fila)
+    return resultado
 
 
 # ─── Lectura ──────────────────────────────────────────────────────────────────
@@ -376,6 +447,11 @@ def crear_cuenta(email: str, password: str, nombre_taller: str, plan: str = "tri
         raise ErrorAdmin("La contraseña debe tener al menos 8 caracteres.")
     if plan not in ("trial", *PLANES_PAGO):
         raise ErrorAdmin(f"Plan inicial no válido: {plan}")
+    # Nombre único (como el wizard de la app): se revisa ANTES de crear el
+    # usuario en Auth, para no dejar una cuenta a medias.
+    clave = normalizar_nombre_taller(nombre_taller)
+    if nombre_taller and clave and _db().collection("nombresTaller").document(clave).get().exists:
+        raise ErrorAdmin(f'Ya existe un taller llamado "{nombre_taller}".')
 
     auth = _auth()
     try:
@@ -401,6 +477,11 @@ def crear_cuenta(email: str, password: str, nombre_taller: str, plan: str = "tri
     except Exception as e:
         raise ErrorAdmin(f"La cuenta quedó creada en Auth (uid {usuario.uid}) pero falló el perfil: {e}")
 
+    if nombre_taller and clave:
+        try:
+            _reservar_nombre(usuario.uid, nombre_taller)
+        except ErrorAdmin:
+            pass  # carrera con un alta de la app: la cuenta queda, el nombre se corrige a mano
     _auditar("crear_cuenta", usuario.uid, None, {"email": email, "plan": plan, "nombreTaller": nombre_taller})
     return {"uid": usuario.uid, "cuenta": _fila(usuario.uid, perfil)}
 
