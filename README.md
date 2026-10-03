@@ -101,6 +101,7 @@ Reemplaza al panel `/admin` que vivía dentro de la app de MAZA. Desde el botón
 - **Onboarding automático**: los pasos del checklist (primera orden, equipo invitado, primer presupuesto aprobado) se marcan solos leyendo MAZA.
 - **Cobros**: *Registrar pago* extiende la vigencia y deja constancia (`crmPagos`); la lista junta esos pagos con los de Mercado Pago y muestra lo que vence en 7 días.
 - **Métricas**: MRR, ingresos por mes y conversión a pago por mes de alta, rubro y ciudad.
+- **Consumo IA**: lo que registra el Worker de MAZA en `usoIA` (7, 30 o 90 días). Consultas, documentos y búsquedas por función; por cuenta, quién la usó, cuántos días alguien llegó al tope y el costo estimado (Haiku a USD 1/5 por millón; Gemini muestra tokens hasta cargar su precio en `PRECIO_GEMINI`).
 - En la ficha: historial comercial del CRM (visitas y notas) y referidos. Al resolver un ticket, botón para avisar por WhatsApp.
 - Pestañas de **Soporte** (tickets de la app), **Errores** (los que reporta la app) y **Auditoría**.
 

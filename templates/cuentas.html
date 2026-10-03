@@ -66,6 +66,7 @@
       <button data-tab="errores" class="tab px-3 py-2">Errores <span id="n-errores" class="text-red-600"></span></button>
       <button data-tab="cobros" class="tab px-3 py-2">Cobros</button>
       <button data-tab="metricas" class="tab px-3 py-2">Métricas</button>
+      <button data-tab="ia" class="tab px-3 py-2">Consumo IA</button>
       <button data-tab="auditoria" class="tab px-3 py-2">Auditoría</button>
     </nav>
 
@@ -104,6 +105,7 @@
     <section id="tab-hoy" class="hidden space-y-2"></section>
     <section id="tab-cobros" class="hidden space-y-3"></section>
     <section id="tab-metricas" class="hidden space-y-4"></section>
+    <section id="tab-ia" class="hidden space-y-4"></section>
   </main>
 
   <!-- Panel de detalle -->
@@ -447,6 +449,52 @@ async function cargarMetricas() {
 }
 
 
+// ─── Consumo de IA ───────────────────────────────────────────────────────────
+// Lo que escribe el Worker en usoIA (maza_admin.consumo_ia). Unidades = cupo
+// gastado; los tokens son lo que se paga. Gemini sin precio cargado: se
+// muestran sus tokens pero no su costo.
+let diasIA = 30;
+const num = (n) => Number(n || 0).toLocaleString('es-CL');
+const usd = (n) => n == null ? '—' : 'US$ ' + Number(n).toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const tokens = (t) => `<span title="Gemini entrada/salida · Haiku entrada/salida">G ${num(t.geminiEntrada)}/${num(t.geminiSalida)} · H ${num(t.haikuEntrada)}/${num(t.haikuSalida)}</span>`;
+
+async function cargarIA(dias = diasIA) {
+  diasIA = dias;
+  const el = $('#tab-ia');
+  el.innerHTML = '<p class="text-sm text-slate-500">Leyendo usoIA…</p>';
+  try {
+    const r = await api(`/api/maza/consumo-ia?dias=${dias}`);
+    const t = r.totales;
+    const tarjeta = (titulo, v, sub = '') => `<div class="rounded-2xl border border-slate-200 bg-white p-3"><p class="text-[11px] font-bold uppercase text-slate-500">${titulo}</p><p class="text-2xl font-extrabold">${v}</p><p class="text-[11px] text-slate-500">${sub}</p></div>`;
+    const periodo = [7, 30, 90].map((d) => `<button onclick="cargarIA(${d})" class="rounded-xl border px-3 py-1.5 text-xs font-bold ${d === dias ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-slate-300 bg-white text-slate-600'}">${d} días</button>`).join('');
+    const max = Math.max(1, ...r.porDia.map((x) => x.unidades));
+    const barras = r.porDia.map((x) => `<div class="flex items-center gap-2 text-xs py-0.5"><span class="w-20 font-mono">${x.fecha.slice(5)}</span><div class="flex-1 h-2 rounded bg-slate-100"><div class="h-2 rounded bg-amber-500" style="width:${x.unidades / max * 100}%"></div></div><span class="w-10 text-right">${x.unidades}</span></div>`).join('');
+    const filaFuncion = (f) => `<tr class="border-t border-slate-100"><td class="px-3 py-2 font-bold">${esc(f.nombre)}</td><td class="px-3 py-2 text-right">${num(f.unidades)}</td><td class="px-3 py-2 text-right">${num(f.gemini)} / ${num(f.haiku)}</td><td class="px-3 py-2 text-right">${num(f.devueltas)}</td><td class="px-3 py-2 text-right font-mono text-[11px] whitespace-nowrap">${tokens(f)}</td><td class="px-3 py-2 text-right">${usd(f.haikuUsd)}</td></tr>`;
+    const tope = (n) => n ? `<span class="rounded-full bg-red-50 border border-red-200 px-2 text-red-700 font-bold">${n}</span>` : '<span class="text-slate-400">0</span>';
+    const filaTaller = (x, i) => `<tr class="border-t border-slate-100 cursor-pointer hover:bg-slate-50" onclick="document.getElementById('ia-p-${i}').classList.toggle('hidden')">
+        <td class="px-3 py-2"><span class="font-bold">${esc(x.nombreTaller)}</span> <span class="rounded-full border px-2 text-[10px] font-bold ${COLOR[x.modo] || ''}">${esc(NOMBRE[x.modo] || x.modo)}</span></td>
+        <td class="px-3 py-2 text-right">${num(x.consultas)}</td><td class="px-3 py-2 text-right">${num(x.documentos)}</td><td class="px-3 py-2 text-right">${num(x.busquedas)}</td>
+        <td class="px-3 py-2 text-right">${x.dias}</td><td class="px-3 py-2 text-right">${tope(x.diasTopeChat)} / ${tope(x.diasTopeDocumentos)}</td>
+        <td class="px-3 py-2 text-right font-mono text-[11px] whitespace-nowrap">${tokens(x.totales)}</td><td class="px-3 py-2 text-right font-bold">${usd(x.haikuUsd)}</td></tr>
+      <tr id="ia-p-${i}" class="hidden bg-slate-50"><td colspan="8" class="px-6 py-2">${x.personas.map((p) => `<div class="flex flex-wrap gap-x-3 text-xs py-0.5"><span class="font-bold w-56 truncate">${esc(p.email || p.uid)}${p.esDueno ? ' · dueño' : ''}</span>${Object.entries(p.funciones).map(([k, v]) => `<span>${esc(r.nombresFuncion?.[k] || k)}: <b>${num(v.unidades)}</b></span>`).join('')}</div>`).join('')}</td></tr>`;
+    const tabla = (cabeza, cuerpo, vacio, cols) => `<div class="overflow-x-auto rounded-2xl border border-slate-200 bg-white"><table class="w-full text-xs"><thead class="bg-slate-50 text-slate-500"><tr>${cabeza}</tr></thead><tbody>${cuerpo || `<tr><td colspan="${cols}" class="px-3 py-6 text-center text-slate-500">${vacio}</td></tr>`}</tbody></table></div>`;
+    const th = (t, der = true) => `<th class="px-3 py-2 ${der ? 'text-right' : 'text-left'} font-bold">${t}</th>`;
+    el.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2"><p class="text-xs text-slate-500">Desde ${fecha(r.desde)} (UTC). Unidades = cupo gastado; el costo es lo que se paga por tokens.</p><div class="flex gap-2">${periodo}</div></div>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+        ${tarjeta('Consultas', num(t.consultas), 'asistente, chat y avisos')}
+        ${tarjeta('Documentos', num(t.documentos), 'facturas y listas')}
+        ${tarjeta('Búsquedas', num(t.busquedas), `${num(t.embebidos)} textos embebidos`)}
+        ${tarjeta('Costo Haiku', usd(t.haikuUsd), `${num(t.haiku)} respuestas de respaldo`)}
+        ${tarjeta('Tokens Gemini', num(t.geminiEntrada + t.geminiSalida), r.precioGeminiCargado ? usd(t.geminiUsd) : 'sin precio cargado')}
+      </div>
+      <div class="rounded-2xl border border-slate-200 bg-white p-3"><h3 class="font-extrabold text-sm mb-2">Consultas y documentos por día</h3>${barras || '<p class="text-xs text-slate-500">Sin uso en el período. ¿Ya está desplegado el Worker con la medición?</p>'}</div>
+      <h3 class="font-extrabold pt-1">Por función</h3>
+      ${tabla(th('Función', false) + th('Unidades') + th('Gemini / Haiku') + th('Devueltas') + th('Tokens') + th('USD Haiku'), r.funciones.map(filaFuncion).join(''), 'Sin datos.', 6)}
+      <h3 class="font-extrabold pt-1">Por cuenta <span class="text-xs font-normal text-slate-500">· clic para ver a cada persona · "al tope" = días en que alguien agotó el chat / el taller agotó los documentos</span></h3>
+      ${tabla(th('Taller', false) + th('Consultas') + th('Docs') + th('Búsq.') + th('Días con uso') + th('Al tope chat / docs') + th('Tokens') + th('USD Haiku'), r.talleres.map(filaTaller).join(''), 'Ninguna cuenta usó IA en el período.', 8)}`;
+  } catch (e) { el.innerHTML = `<p class="text-sm text-red-600">${esc(e.message)}</p>`; }
+}
+
 function sumarDias(n) {
   const input = document.querySelector('#form-plan [name=planVigenteHasta]');
   const d = new Date();
@@ -617,10 +665,11 @@ function cambiarPestana(t) {
     const activa = b.dataset.tab === t;
     b.className = `tab px-3 py-2 border-b-2 ${activa ? 'border-amber-500 text-slate-900' : 'border-transparent text-slate-500'}`;
   });
-  ['hoy', 'cuentas', 'tickets', 'errores', 'cobros', 'metricas', 'auditoria'].forEach((x) => $('#tab-' + x).classList.toggle('hidden', x !== t));
+  ['hoy', 'cuentas', 'tickets', 'errores', 'cobros', 'metricas', 'ia', 'auditoria'].forEach((x) => $('#tab-' + x).classList.toggle('hidden', x !== t));
   if (t === 'hoy') cargarHoy();
   if (t === 'cobros') cargarCobros();
   if (t === 'metricas') cargarMetricas();
+  if (t === 'ia') cargarIA();
   if (t === 'tickets') cargarTickets();
   if (t === 'errores') cargarErrores();
   if (t === 'auditoria') cargarAuditoria();
