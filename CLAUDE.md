@@ -43,6 +43,7 @@ python -m PyInstaller MazaCRM.spec --noconfirm   # builds dist/MazaCRM/MazaCRM.e
 - `maza_admin.py` — firebase-admin with Application Default Credentials (`gcloud auth application-default login`), no key files. Mirrors MAZA's data model (`users/{uid}`, `empleados` mirror, `errores`, `tickets`) and its trial rules (`TRIAL_*` must match `PlanService`/`worker.js` in Maza-app). Every write goes through `_auditar()` → `adminAuditoria`. `MAZA_EMULADOR=1` targets the Firebase emulator (`demo-litoralbikes`).
 - `maza_rutas.py` — `/api/maza/*` router (sync `def` routes: firebase-admin blocks). `ErrorAdmin` → 400 with the message for the UI.
 - `templates/cuentas.html` — the `/cuentas` page (same Tailwind CDN style as `index.html`).
+- `consumo_ia()` reads `usoIA/{fecha}_{tallerId}` (written by the Maza Worker's `registrarUsoIA`); `agregar_consumo_ia()` is pure. Quota limits (`LIMITE_CHAT_*`, `LIMITE_DOCUMENTOS_*`) must match `worker.js`; `PRECIO_GEMINI` stays `None` until the Vertex price is known.
 - `talleres.maza_uid` links a CRM workshop to its MAZA account; `estado_crm_para()` derives the funnel stage from the real plan.
 - Test against the emulator, never production, when developing (`MAZA_EMULADOR=1`; Storage is skipped there, audio stays local).
 - If Firestore can't load at startup, `app.py` keeps serving and `/api/*` answers 503 with the reason (`/api/salud`), shown as a red banner by `index.html`.

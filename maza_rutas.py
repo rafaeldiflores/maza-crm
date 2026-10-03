@@ -216,3 +216,8 @@ def registrar_pago(uid: str, pago: Pago):
 @router.get("/metricas")
 def metricas():
     return maza_admin.metricas(_llamar(maza_admin.salud_cuentas), _llamar(maza_admin.listar_pagos))
+
+
+@router.get("/consumo-ia")
+def consumo_ia(dias: int = 30):
+    return _llamar(maza_admin.consumo_ia, dias)
