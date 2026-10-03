@@ -75,6 +75,7 @@ export class Api {
   sincronizar = () => this.post<{ cambios: number }>('/api/maza/sincronizar');
   pagos = () => this.get<any[]>('/api/maza/pagos');
   metricas = () => this.get<any>('/api/maza/metricas');
+  consumoIA = (dias: number) => this.get<any>('/api/maza/consumo-ia', { dias });
   tickets = () => this.get<any[]>('/api/maza/tickets');
   resolverTicket = (id: string, respuesta: string) => this.post(`/api/maza/tickets/${encodeURIComponent(id)}/resolver`, { respuesta });
   errores = () => this.get<any[]>('/api/maza/errores');
