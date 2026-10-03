@@ -229,3 +229,8 @@ def eliminar(uid: str, e: Eliminacion):
     if vinculo:
         db.update_taller(vinculo["id"], {"maza_uid": ""})
     return r
+
+
+@router.get("/consumo-ia")
+def consumo_ia(dias: int = 30):
+    return _llamar(maza_admin.consumo_ia, dias)

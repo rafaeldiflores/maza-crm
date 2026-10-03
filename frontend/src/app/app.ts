@@ -13,6 +13,7 @@ const PESTANAS: Pestana[] = [
   { texto: 'Cuentas', ruta: '/cuentas', admin: true },
   { texto: 'Cobros', ruta: '/cobros', admin: true },
   { texto: 'Métricas', ruta: '/metricas', admin: true },
+  { texto: 'Consumo IA', ruta: '/consumo-ia', admin: true },
   { texto: 'Soporte', ruta: '/soporte', admin: true },
   { texto: 'Errores', ruta: '/errores', admin: true },
   { texto: 'Auditoría', ruta: '/auditoria', admin: true },

@@ -683,3 +683,173 @@ def eliminar_cuenta(uid: str, confirmacion: str) -> Dict[str, Any]:
     except _auth().UserNotFoundError:
         pass
     return {"tipo": tipo, "email": p.get("email")}
+
+
+# ─── Consumo de IA ────────────────────────────────────────────────────────────
+# Lo escribe el Worker de MAZA (registrarUsoIA en cloudflare-worker/worker.js):
+#   usoIA/{fecha}_{tallerId} = {fecha, tallerId, modo,
+#     uso: {<uid>: {<funcion>: {unidades, gemini, haiku, devueltas,
+#                               geminiEntrada, geminiSalida, haikuEntrada,
+#                               haikuSalida, embebidos}}}}
+# Acá solo se lee y se agrupa: una lectura por taller y día del período.
+
+# Mismos topes que worker.js (LIMITE_IA_PERSONA, LIMITE_GRATIS,
+# LECTURAS_DOCUMENTO_DIARIAS, LECTURAS_DOCUMENTO_GRATIS). Si cambian allá,
+# cambian acá: sirven para ver qué cuentas llegan al tope.
+LIMITE_CHAT_PERSONA = {"pro": 12, "ilimitado": 12, "empresa": 12}
+LIMITE_CHAT_GRATIS = 2
+LIMITE_DOCUMENTOS_TALLER = {"pro": 3, "ilimitado": 5, "empresa": 10}
+LIMITE_DOCUMENTOS_GRATIS = 1
+# Las que gastan el cupo de chat (tipo 'consulta' en /ia/reservar) y las del
+# cupo de documentos. La búsqueda tiene su propio tope (300/persona) y es
+# barata: se muestra, pero no cuenta para "al tope".
+FUNCIONES_CHAT = ("asistente", "chat", "aviso_retiro", "otra")
+FUNCIONES_DOCUMENTO = ("factura", "lista_servicios")
+NOMBRE_FUNCION = {
+    "asistente": "Asistente (agente)",
+    "chat": "Chat clásico",
+    "aviso_retiro": "Aviso de vehículo listo",
+    "factura": "Lectura de factura",
+    "lista_servicios": "Lista de servicios",
+    "busqueda": "Búsqueda semántica",
+    "otra": "Otra / app vieja",
+}
+# USD por millón de tokens. Haiku 4.5: 1 entrada, 5 salida (la entrada se
+# cuenta toda a precio lleno, así que es un techo). Gemini: None hasta cargar
+# el precio de la factura de Vertex; mientras tanto su costo no se suma.
+PRECIO_HAIKU = (1.0, 5.0)
+PRECIO_GEMINI: Optional[tuple] = None
+METRICAS_IA = ("unidades", "gemini", "haiku", "devueltas", "geminiEntrada",
+               "geminiSalida", "haikuEntrada", "haikuSalida", "embebidos")
+
+
+def _vacio() -> Dict[str, int]:
+    return {m: 0 for m in METRICAS_IA}
+
+
+def _sumar(destino: Dict[str, int], origen: Dict[str, Any]) -> None:
+    for m in METRICAS_IA:
+        v = origen.get(m)
+        if isinstance(v, (int, float)) and v > 0:
+            destino[m] += int(v)
+
+
+def _costo_usd(t: Dict[str, int]) -> Dict[str, Optional[float]]:
+    haiku = (t["haikuEntrada"] * PRECIO_HAIKU[0] + t["haikuSalida"] * PRECIO_HAIKU[1]) / 1e6
+    gemini = None
+    if PRECIO_GEMINI:
+        gemini = (t["geminiEntrada"] * PRECIO_GEMINI[0] + t["geminiSalida"] * PRECIO_GEMINI[1]) / 1e6
+    return {"haikuUsd": round(haiku, 4), "geminiUsd": None if gemini is None else round(gemini, 4)}
+
+
+def agregar_consumo_ia(docs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Agrupa documentos usoIA por función, por taller y por día. Pura (sin
+    Firestore): recibe los dicts tal como vienen de `to_dict()`."""
+    por_funcion: Dict[str, Dict[str, int]] = {}
+    por_taller: Dict[str, Dict[str, Any]] = {}
+    por_dia: Dict[str, int] = {}
+    for doc in docs:
+        fecha, taller = doc.get("fecha"), doc.get("tallerId")
+        uso = doc.get("uso")
+        if not isinstance(fecha, str) or not isinstance(taller, str) or not isinstance(uso, dict):
+            continue
+        modo = doc.get("modo") or "?"
+        t = por_taller.setdefault(taller, {
+            "tallerId": taller, "modo": modo, "totales": _vacio(), "funciones": {},
+            "personas": {}, "dias": set(), "diasTopeChat": 0, "diasTopeDocumentos": 0,
+        })
+        t["modo"] = modo  # el último día leído manda (los docs vienen por fecha)
+        t["dias"].add(fecha)
+        docs_dia = 0
+        for uid, funciones in uso.items():
+            if not isinstance(funciones, dict):
+                continue
+            persona = t["personas"].setdefault(uid, {"uid": uid, "totales": _vacio(), "funciones": {}})
+            chat_dia = 0
+            for funcion, metricas in funciones.items():
+                if not isinstance(metricas, dict):
+                    continue
+                for destino in (
+                    por_funcion.setdefault(funcion, _vacio()),
+                    t["totales"], t["funciones"].setdefault(funcion, _vacio()),
+                    persona["totales"], persona["funciones"].setdefault(funcion, _vacio()),
+                ):
+                    _sumar(destino, metricas)
+                unidades = int(metricas.get("unidades") or 0)
+                # El gráfico por día cuenta lo que gasta cupo: las búsquedas
+                # son cientos y casi gratis, y taparían todo lo demás.
+                if funcion != "busqueda":
+                    por_dia[fecha] = por_dia.get(fecha, 0) + unidades
+                if funcion in FUNCIONES_CHAT:
+                    chat_dia += unidades
+                elif funcion in FUNCIONES_DOCUMENTO:
+                    docs_dia += unidades
+            if chat_dia >= LIMITE_CHAT_PERSONA.get(modo, LIMITE_CHAT_GRATIS):
+                t["diasTopeChat"] += 1
+        if docs_dia >= LIMITE_DOCUMENTOS_TALLER.get(modo, LIMITE_DOCUMENTOS_GRATIS):
+            t["diasTopeDocumentos"] += 1
+
+    talleres = []
+    for t in por_taller.values():
+        suma = lambda grupo: sum(v["unidades"] for k, v in t["funciones"].items() if k in grupo)  # noqa: E731
+        talleres.append({
+            **t, "dias": len(t["dias"]), **_costo_usd(t["totales"]),
+            "consultas": suma(FUNCIONES_CHAT), "documentos": suma(FUNCIONES_DOCUMENTO), "busquedas": suma(("busqueda",)),
+            "personas": sorted(t["personas"].values(), key=lambda p: -p["totales"]["unidades"]),
+        })
+    talleres.sort(key=lambda t: (-t["haikuUsd"], -t["totales"]["unidades"]))
+    totales = _vacio()
+    for f in por_funcion.values():
+        for m in METRICAS_IA:
+            totales[m] += f[m]
+    unidades_de = lambda grupo: sum(v["unidades"] for k, v in por_funcion.items() if k in grupo)  # noqa: E731
+    totales["consultas"] = unidades_de(FUNCIONES_CHAT)
+    totales["documentos"] = unidades_de(FUNCIONES_DOCUMENTO)
+    totales["busquedas"] = unidades_de(("busqueda",))
+    funciones = [
+        {"funcion": k, "nombre": NOMBRE_FUNCION.get(k, k), **v, **_costo_usd(v)}
+        # La búsqueda va al final: son cientos de unidades casi gratis.
+        for k, v in sorted(por_funcion.items(), key=lambda kv: (kv[0] == "busqueda", -kv[1]["unidades"]))
+    ]
+    return {
+        "totales": {**totales, **_costo_usd(totales)},
+        "funciones": funciones,
+        "talleres": talleres,
+        "porDia": [{"fecha": d, "unidades": n} for d, n in sorted(por_dia.items())],
+        "precioGeminiCargado": PRECIO_GEMINI is not None,
+    }
+
+
+def consumo_ia(dias: int = 30) -> Dict[str, Any]:
+    """Consumo de IA de los últimos `dias` (UTC), con nombre del taller y correo
+    de cada persona. Lecturas: un doc por taller-día + un get por taller."""
+    dias = max(1, min(int(dias), 366))
+    desde = (datetime.now(timezone.utc) - timedelta(days=dias - 1)).date().isoformat()
+    db = _db()
+    docs = [d.to_dict() or {} for d in db.collection("usoIA").where("fecha", ">=", desde).stream()]
+    docs.sort(key=lambda d: d.get("fecha") or "")
+    r = agregar_consumo_ia(docs)
+
+    # Nombres: perfiles de los talleres que aparecen (no todos los users) y
+    # correos de las personas desde Auth, en lotes de 100 (límite de get_users).
+    ids = [t["tallerId"] for t in r["talleres"]]
+    perfiles = {s.id: (s.to_dict() or {}) for s in db.get_all([db.collection("users").document(i) for i in ids])} if ids else {}
+    uids = sorted({p["uid"] for t in r["talleres"] for p in t["personas"]})
+    correos: Dict[str, str] = {}
+    try:
+        from firebase_admin import auth
+        for i in range(0, len(uids), 100):
+            lote = auth.get_users([auth.UidIdentifier(u) for u in uids[i:i + 100]], app=_app())
+            correos.update({u.uid: u.email or "" for u in lote.users})
+    except Exception:  # noqa: BLE001 — sin correos se muestra el uid
+        pass
+    for t in r["talleres"]:
+        p = perfiles.get(t["tallerId"], {})
+        t["nombreTaller"] = p.get("nombreTaller") or p.get("username") or t["tallerId"]
+        for persona in t["personas"]:
+            persona["email"] = correos.get(persona["uid"], "")
+            persona["esDueno"] = persona["uid"] == t["tallerId"]
+    r["nombresFuncion"] = NOMBRE_FUNCION
+    r["desde"] = desde
+    r["dias"] = dias
+    return r
