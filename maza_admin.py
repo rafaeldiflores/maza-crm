@@ -18,6 +18,7 @@ MAZA_EMULADOR=1 apunta al emulador de Firebase (ver nube.py).
 """
 from __future__ import annotations
 
+import contextvars
 import os
 import shutil
 import subprocess
@@ -69,9 +70,18 @@ def _auth():
     return auth
 
 
-@lru_cache(maxsize=1)
+# Correo de quien hace el request (lo fija app.py desde IAP en Cloud Run).
+USUARIO: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("usuario", default=None)
+
+
 def actor() -> str:
-    """Quién hace los cambios, para la auditoría: la cuenta activa de gcloud."""
+    """Quién hace los cambios, para la auditoría: la sesión de IAP en Cloud
+    Run; en local, la cuenta activa de gcloud."""
+    return USUARIO.get() or _actor_local()
+
+
+@lru_cache(maxsize=1)
+def _actor_local() -> str:
     if EMULADOR:
         return "emulador"
     gcloud = shutil.which("gcloud") or shutil.which("gcloud.cmd")
@@ -487,6 +497,8 @@ def _ultimo_dia_activo(p: Dict[str, Any]) -> Optional[datetime]:
 def salud_cuentas() -> List[Dict[str, Any]]:
     db = _db()
     accesos = _ultimos_accesos()
+    import ajustes
+    umbrales = ajustes.leer()["salud"]
     usuarios = [(d.id, d.to_dict() or {}) for d in db.collection("users").stream()]
     referidos: Dict[str, int] = {}
     for _, p in usuarios:
@@ -513,7 +525,7 @@ def salud_cuentas() -> List[Dict[str, Any]]:
             "usuarios_invitados": uso["equipo"] > 0,
             "primer_presupuesto": uso["aprobaciones"] > 0,
         }
-        estado, motivo = _diagnostico(f, sin_uso, pasos)
+        estado, motivo = _diagnostico(f, sin_uso, pasos, umbrales)
         filas.append({
             **f, "uso": uso, "pasos": pasos, "ultimoAcceso": acceso.isoformat() if acceso else None,
             "diasSinUso": sin_uso, "salud": estado, "motivo": motivo,
@@ -524,15 +536,15 @@ def salud_cuentas() -> List[Dict[str, Any]]:
     return filas
 
 
-def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, bool]):
+def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, bool], u: Dict[str, int]):
     modo = f["modo"]
     if modo in PLANES_PAGO:
         hasta = _fecha(f["planVigenteHasta"])
         if hasta:
             dias = (hasta - datetime.now(timezone.utc)).days
-            if dias <= 7:
+            if dias <= u["diasAvisoRenovar"]:
                 return "renovar", f"Vence en {max(dias, 0)} días"
-        if sin_uso is not None and sin_uso >= 7:
+        if sin_uso is not None and sin_uso >= u["diasSinUsoPago"]:
             return "riesgo", f"Pagando, {sin_uso} días sin usar"
         return "sano", "Al día"
     if modo == "trial_expirado":
@@ -540,9 +552,9 @@ def _diagnostico(f: Dict[str, Any], sin_uso: Optional[int], pasos: Dict[str, boo
     if modo != "trial":
         return "sano", ""
     hechos = sum(pasos.values())
-    if sin_uso is None or sin_uso >= 3:
+    if sin_uso is None or sin_uso >= u["diasSinUsoPrueba"]:
         return "riesgo", "Nunca entró" if sin_uso is None else f"{sin_uso} días sin entrar"
-    if f["trialDiasUsados"] >= 10:
+    if f["trialDiasUsados"] >= u["diasPruebaPorVencer"]:
         return "riesgo", f"Le quedan {TRIAL_DIAS - f['trialDiasUsados']} días de prueba"
     if hechos < 3 or sin_uso >= 2:
         return "tibio", f"Onboarding {hechos}/4"
@@ -613,6 +625,64 @@ def metricas(salud: List[Dict[str, Any]], pagos: List[Dict[str, Any]]) -> Dict[s
         "porRubro": conversion(lambda c: c["tipoTaller"]),
         "porCiudad": conversion(lambda c: c["ciudad"]),
     }
+
+
+# ─── Eliminar cuenta ──────────────────────────────────────────────────────────
+# Mismo recorrido que /cuenta/eliminar del Worker (eliminarCuentaDueno /
+# eliminarCuentaMecanico): equipo desvinculado, tokens de Mercado Pago,
+# índices propios, fotos en Storage, árbol users/{uid} y la cuenta de Auth.
+# Irreversible: la UI pide escribir el correo para confirmar.
+
+def eliminar_cuenta(uid: str, confirmacion: str) -> Dict[str, Any]:
+    from google.cloud.firestore_v1 import DELETE_FIELD
+
+    db = _db()
+    ref = db.collection("users").document(uid)
+    snap = ref.get()
+    p = (snap.to_dict() or {}) if snap.exists else {}
+    email = (p.get("email") or "").lower()
+    if snap.exists and confirmacion.strip().lower() != email:
+        raise ErrorAdmin("Para eliminar, escribe el correo exacto de la cuenta.")
+
+    tipo = "sin_perfil"
+    if snap.exists:
+        taller = p.get("tallerId")
+        if taller and taller != uid:
+            tipo = "mecanico"
+            db.collection("users").document(taller).collection("empleados").document(uid).delete()
+        else:
+            tipo = "dueno"
+            db.collection("mpTokens").document(uid).delete()
+            for e in ref.collection("empleados").stream():
+                if e.id != uid:
+                    miembro = db.collection("users").document(e.id)
+                    if miembro.get().exists:
+                        miembro.update({"tallerId": DELETE_FIELD, "rol": DELETE_FIELD})
+            for coleccion, campo_id, campo_dueno in (
+                ("usernames", "username", "uid"),
+                ("codigosTaller", "codigoTaller", "ownerId"),
+                ("codigosReferido", "codigoReferido", "ownerId"),
+            ):
+                doc_id = p.get(campo_id)
+                if doc_id:
+                    idx = db.collection(coleccion).document(str(doc_id))
+                    d = idx.get()
+                    if d.exists and (d.to_dict() or {}).get(campo_dueno) == uid:
+                        idx.delete()
+        # Auditoría antes de borrar: después ya no queda qué mostrar.
+        _auditar("eliminar_cuenta", uid, {k: _serializable(p.get(k)) for k in ("email", "nombreTaller", "plan", "planVigenteHasta")},
+                 None, {"email": p.get("email"), "tipo": tipo})
+        b = nube.bucket()
+        if b is not None:
+            for blob in b.list_blobs(prefix=f"users/{uid}/"):
+                blob.delete()
+        db.recursive_delete(ref)
+
+    try:
+        _auth().delete_user(uid, app=_app())
+    except _auth().UserNotFoundError:
+        pass
+    return {"tipo": tipo, "email": p.get("email")}
 
 
 # ─── Consumo de IA ────────────────────────────────────────────────────────────

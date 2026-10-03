@@ -1,12 +1,2 @@
-fastapi>=0.141,<1.0
-uvicorn>=0.54,<1.0
-playwright>=1.63,<2.0
-openpyxl>=3.1,<4.0
-python-multipart>=0.0.32,<0.1
-pystray>=0.19,<1.0
-pillow>=12.0,<13.0
-# Cuentas MAZA (/cuentas): credenciales de `gcloud auth application-default login`
-firebase-admin>=7.0,<8.0
-
-# Solo necesario para compilar el .exe (no se requiere para correr con `python run_crm.py`)
-pyinstaller>=6.22,<7.0
+# Desarrollo local: lo mismo que el servidor.
+-r requirements-servidor.txt

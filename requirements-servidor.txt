@@ -1,0 +1,7 @@
+# Servidor del CRM en Cloud Run (sin Playwright, pystray ni PyInstaller).
+fastapi>=0.141,<1.0
+uvicorn>=0.54,<1.0
+openpyxl>=3.1,<4.0
+python-multipart>=0.0.32,<0.1
+firebase-admin>=7.0,<8.0
+google-genai>=1.0,<2.0

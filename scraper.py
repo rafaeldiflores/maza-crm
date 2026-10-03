@@ -19,7 +19,10 @@ if hasattr(sys.stderr, 'reconfigure'):
 
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from playwright.async_api import async_playwright, Page, BrowserContext
+try:  # Legado: el rastreo ahora es Places API (places.py). Opcional.
+    from playwright.async_api import async_playwright, Page, BrowserContext
+except ImportError:
+    async_playwright = Page = BrowserContext = None
 
 from config import BROWSER_CONFIG
 
