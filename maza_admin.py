@@ -19,7 +19,11 @@ MAZA_EMULADOR=1 apunta al emulador de Firebase (ver nube.py).
 from __future__ import annotations
 
 import contextvars
+import copy
 import os
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 import shutil
 import subprocess
 from datetime import datetime, timezone, timedelta
@@ -268,6 +272,8 @@ def buscar_por_email(email: str) -> Optional[Dict[str, Any]]:
 # ─── Escritura (todas auditadas) ──────────────────────────────────────────────
 
 def _auditar(accion: str, uid: Optional[str], antes: Any, despues: Any, extra: Optional[dict] = None):
+    # Toda escritura de cuentas pasa por acá: la salud en memoria deja de valer.
+    invalidar_salud()
     _db().collection("adminAuditoria").add({
         "accion": accion,
         "uid": uid,
@@ -494,7 +500,49 @@ def _ultimo_dia_activo(p: Dict[str, Any]) -> Optional[datetime]:
     return _fecha(dias[-1]) if dias else None
 
 
+# El 504 de /api/maza/salud (3/10/2026): la salud hacía 4 conteos POR TALLER,
+# uno detrás de otro (4 × N idas y vueltas a Firestore, más el listado entero
+# de Auth), y Hoy, Cobros y Métricas la piden cada una al abrirse. Con unas
+# decenas de cuentas ya pasaba el plazo del balanceador de IAP. Dos arreglos:
+# - los conteos van en paralelo (son lecturas independientes; el cliente de
+#   Firestore es seguro entre hilos);
+# - el resultado se guarda unos segundos en memoria (Cloud Run corre UNA sola
+#   instancia, ver CLAUDE.md), y toda escritura de cuentas lo invalida, así
+#   que lo que cambies se ve al instante.
+SALUD_TTL_SEG = 60
+SALUD_HILOS = 16
+_cache_salud: Dict[str, Any] = {"en": 0.0, "filas": None}
+_lock_salud = threading.Lock()
+
+
+def invalidar_salud() -> None:
+    """La próxima lectura de salud vuelve a Firestore (tras cualquier escritura)."""
+    _cache_salud["filas"] = None
+
+
+def _uso_taller(db, uid: str) -> Dict[str, int]:
+    ref = db.collection("users").document(uid)
+    return {
+        "catalogo": _contar(ref.collection("services")),
+        "clientes": _contar(ref.collection("clients")),
+        "equipo": _contar(ref.collection("empleados")),
+        "aprobaciones": _contar(db.collection("aprobaciones").where("tallerId", "==", uid)),
+    }
+
+
 def salud_cuentas() -> List[Dict[str, Any]]:
+    # Un solo cálculo a la vez: si Hoy y Cobros piden la salud juntas, la
+    # segunda espera y usa la de la primera en vez de repetir todo.
+    with _lock_salud:
+        filas = _cache_salud["filas"]
+        if filas is not None and time.monotonic() - _cache_salud["en"] < SALUD_TTL_SEG:
+            return copy.deepcopy(filas)
+        filas = _calcular_salud()
+        _cache_salud.update(en=time.monotonic(), filas=filas)
+        return copy.deepcopy(filas)
+
+
+def _calcular_salud() -> List[Dict[str, Any]]:
     db = _db()
     accesos = _ultimos_accesos()
     import ajustes
@@ -505,17 +553,13 @@ def salud_cuentas() -> List[Dict[str, Any]]:
         if p.get("referidoPor"):
             referidos[p["referidoPor"]] = referidos.get(p["referidoPor"], 0) + 1
 
+    titulares = [(uid, p) for uid, p in usuarios if _es_titular(uid, p)]
+    with ThreadPoolExecutor(max_workers=SALUD_HILOS) as hilos:
+        usos = dict(zip((uid for uid, _ in titulares), hilos.map(lambda t: _uso_taller(db, t[0]), titulares)))
+
     filas = []
-    for uid, p in usuarios:
-        if not _es_titular(uid, p):
-            continue
-        ref = db.collection("users").document(uid)
-        uso = {
-            "catalogo": _contar(ref.collection("services")),
-            "clientes": _contar(ref.collection("clients")),
-            "equipo": _contar(ref.collection("empleados")),
-            "aprobaciones": _contar(db.collection("aprobaciones").where("tallerId", "==", uid)),
-        }
+    for uid, p in titulares:
+        uso = usos[uid]
         acceso = max([d for d in (accesos.get(uid), _ultimo_dia_activo(p)) if d], default=None)
         sin_uso = _dias_desde(acceso)
         f = _fila(uid, p)
