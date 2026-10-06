@@ -35,44 +35,67 @@ function guardarPrefs(p: Record<string, any>) {
   imports: [FormsModule, NgTemplateOutlet, WaPipe, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <!-- Encabezado de página -->
-    <section class="tarjeta mb-3 flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4">
-      <div>
-        <p class="titulo-seccion">Prospección</p>
-        <h1 class="text-xl font-bold">Talleres</h1>
-      </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button class="btn font-semibold" (click)="nuevo.set(true)">＋ Agregar taller</button>
-        <button class="btn-primario btn font-semibold" (click)="rastreo.set(true)">🎯 Rastrear talleres</button>
-        <div class="relative">
-          <button class="btn font-semibold flex items-center gap-1.5" (click)="menuHerramientas.set(!menuHerramientas())">
-            <span>Herramientas</span>
-            <span class="text-[10px] transition-transform duration-200" [class.rotate-180]="menuHerramientas()">▾</span>
+    <!-- Encabezado de página y barra de herramientas rápida -->
+    <section class="tarjeta mb-3 divide-y divide-borde overflow-hidden">
+      <!-- Fila 1: Título y Creación principal -->
+      <div class="flex flex-wrap items-center justify-between gap-3 p-3 sm:px-4 sm:py-3.5">
+        <div>
+          <p class="titulo-seccion">Prospección</p>
+          <h1 class="text-xl font-bold text-slate-900">Talleres</h1>
+        </div>
+        <div class="flex items-center gap-2">
+          <button class="btn font-semibold shadow-xs" (click)="nuevo.set(true)">
+            <span>＋</span> Agregar taller
           </button>
-          @if (menuHerramientas()) {
-            <div class="fixed inset-0 z-20" (click)="menuHerramientas.set(false)"></div>
-            <div class="absolute right-0 top-full z-30 mt-1 w-56 rounded-md border border-borde bg-white py-1 shadow-lg text-xs" (click)="menuHerramientas.set(false)">
-              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('ruta')">
-                <span class="text-sm">🧭</span> Plan de ruta
-              </button>
-              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('embudo')">
-                <span class="text-sm">📊</span> Conversión del embudo
-              </button>
-              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('duplicados')">
-                <span class="text-sm">⧉</span> Detectar duplicados
-              </button>
-              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('pitch')">
-                <span class="text-sm">💬</span> Guía de pitch
-              </button>
-              <div class="my-1 border-t border-borde"></div>
-              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="copiarTesters()">
-                <span class="text-sm">🧪</span> Copiar testers ({{ testers().length }})
-              </button>
-              <a class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" href="/api/export/excel">
-                <span class="text-sm">📥</span> Exportar a Excel
-              </a>
-            </div>
-          }
+          <button class="btn-primario btn font-semibold shadow-xs" (click)="rastreo.set(true)">
+            <span>🎯</span> Rastrear talleres
+          </button>
+        </div>
+      </div>
+
+      <!-- Fila 2: Barra de herramientas directas (1-click, acceso inmediato sin menús ocultos) -->
+      <div class="flex items-center justify-between gap-2 overflow-x-auto bg-slate-50/75 px-3 py-2 text-xs sm:px-4">
+        <div class="flex items-center gap-1.5 flex-nowrap sm:flex-wrap">
+          <span class="mr-1 hidden text-[11px] font-bold uppercase tracking-wider text-slate-400 sm:inline">Herramientas:</span>
+
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  (click)="herramienta.set('ruta')">
+            <span>🧭</span> Plan de ruta
+          </button>
+
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  (click)="herramienta.set('embudo')">
+            <span>📊</span> Conversión
+          </button>
+
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  (click)="herramienta.set('duplicados')">
+            <span>⧉</span> Duplicados
+          </button>
+
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  (click)="herramienta.set('pitch')">
+            <span>💬</span> Guía pitch
+          </button>
+        </div>
+
+        <div class="flex shrink-0 items-center gap-1.5 flex-nowrap">
+          <button class="btn !bg-white shadow-2xs transition-all hover:!border-purple-300 hover:!bg-purple-50 active:scale-95"
+                  [class.!text-purple-700]="testers().length > 0"
+                  (click)="copiarTesters()"
+                  [title]="testers().length + ' correos de beta testers listos para copiar a Play Console'">
+            <span>🧪</span>
+            <span>Testers</span>
+            <span class="ml-0.5 rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-bold text-purple-700">
+              {{ testers().length }}
+            </span>
+          </button>
+
+          <a class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!border-emerald-300 hover:!bg-emerald-50 hover:!text-emerald-700"
+             href="/api/export/excel"
+             title="Descargar lista completa de talleres en formato Excel">
+            <span>📥</span> Excel
+          </a>
         </div>
       </div>
     </section>
@@ -300,7 +323,6 @@ export class Prospectos implements OnInit {
   rastreo = signal(false);
   nuevo = signal(false);
   herramienta = signal<Herramienta>(null);
-  menuHerramientas = signal(false);
   guardandoNota = signal<number | null>(null);
   notaGuardada = signal<number | null>(null);
 
