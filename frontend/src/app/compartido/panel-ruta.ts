@@ -18,7 +18,7 @@ import { RutaEnCurso } from '../core/ruta-en-curso';
       }
 
       @if (!r.abierta()) {
-        <button class="fixed bottom-4 right-4 z-[45] rounded-full bg-marca-800 px-4 py-3 text-sm font-bold text-white shadow-xl" (click)="r.abierta.set(true)">
+        <button class="fixed bottom-20 right-4 z-[45] rounded-full bg-marca-800 px-4 py-3 text-sm font-bold text-white shadow-xl md:bottom-4" (click)="r.abierta.set(true)">
           🧭 Ruta {{ r.hechas() }}/{{ ruta.paradas.length }}
         </button>
       } @else {

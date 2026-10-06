@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { Api, Sesion, mensajeError } from '../core/api';
 import { Estado, ETAPAS, Presets, Stats, Taller } from '../core/modelos';
-import { COLOR_ESTADO, infoPrueba, linkPlantilla, seguimiento, tieneWa, waPorDefecto } from '../core/utiles';
+import { COLOR_ESTADO, infoPrueba, linkPlantilla, seguimiento, telLink, tieneWa, waPorDefecto } from '../core/utiles';
 import { FichaTaller } from './ficha-taller';
 import { Rastreo } from './rastreo';
 import { NuevoTaller } from './nuevo-taller';
@@ -246,10 +246,22 @@ function guardarPrefs(p: Record<string, any>) {
             @for (e of etapasTodas; track e) { <option [value]="e">{{ e }}</option> }
           </select>
         </div>
-        <button class="text-left" (click)="ficha.set(t.id)">
-          <h3 class="font-bold leading-tight hover:text-marca-500">{{ t.nombre }}</h3>
-          <p class="text-xs text-slate-500">📍 {{ t.comuna }}@if (t.telefono && t.telefono !== 'No especificado') { · {{ t.telefono }} }</p>
-        </button>
+        <div class="text-left">
+          <button class="font-bold leading-tight hover:text-marca-500 text-left block w-full" (click)="abrirFicha(t.id, 'resumen')">
+            {{ t.nombre }}
+          </button>
+          <div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+            <span class="cursor-pointer hover:text-slate-700" (click)="abrirFicha(t.id, 'resumen')">📍 {{ t.comuna }}</span>
+            @if (tel(t); as telUrl) {
+              <span>·</span>
+              <a [href]="telUrl" class="font-semibold text-slate-700 hover:text-marca-600 hover:underline inline-flex items-center gap-0.5 py-0.5" title="Llamar directamente por teléfono">
+                <span>📞</span> {{ t.telefono }}
+              </a>
+            } @else if (t.telefono && t.telefono !== 'No especificado') {
+              <span>· {{ t.telefono }}</span>
+            }
+          </div>
+        </div>
         <div class="flex flex-wrap items-center gap-1.5 text-xs">
           @if (t.calificacion && t.calificacion !== 'S/C') { <span class="font-bold text-amber-600">★ {{ t.calificacion }} <span class="font-normal text-slate-400">({{ t.opiniones }})</span></span> }
           @if (t.puntaje_ia != null) {
@@ -273,16 +285,28 @@ function guardarPrefs(p: Record<string, any>) {
             }
           </div>
         }
-        <div class="mt-auto flex items-center justify-between gap-2 border-t border-borde pt-2">
-          @if (conWa(t)) {
-            <a class="btn-wa btn" target="_blank" rel="noopener" [href]="waDefecto(t) | wa">WhatsApp</a>
-          } @else { <span class="text-xs italic text-slate-400">Sin WhatsApp</span> }
-          <button class="btn-primario btn" (click)="ficha.set(t.id)">Visita / ficha</button>
+        <div class="mt-auto flex items-center justify-between gap-1.5 border-t border-borde pt-2">
+          <div class="flex items-center gap-1.5">
+            @if (conWa(t)) {
+              <a class="btn-wa btn !px-2.5" target="_blank" rel="noopener" [href]="waDefecto(t) | wa" title="Abrir WhatsApp">WhatsApp</a>
+            } @else { <span class="text-xs italic text-slate-400">Sin WhatsApp</span> }
+            @if (tel(t); as telUrl) {
+              <a class="btn !px-2 !text-slate-700 hover:!bg-slate-100" [href]="telUrl" title="Llamar directamente por teléfono">📞</a>
+            }
+          </div>
+          <div class="flex items-center gap-1">
+            <button class="btn !px-2.5 !bg-amber-50 hover:!bg-amber-100 !border-amber-300 !text-amber-800 font-semibold"
+                    (click)="abrirFicha(t.id, 'visita')"
+                    title="Registrar visita o llamada en 1 toque">
+              <span>🎙️ Visita</span>
+            </button>
+            <button class="btn-primario btn !px-2.5" (click)="abrirFicha(t.id, 'resumen')">Ficha</button>
+          </div>
         </div>
       </article>
     </ng-template>
 
-    @if (ficha(); as id) { <app-ficha-taller [id]="id" [presets]="presets()" (cerrar)="ficha.set(null)" (cambio)="recargar()" /> }
+    @if (ficha(); as id) { <app-ficha-taller [id]="id" [presets]="presets()" [pestanaInicial]="fichaPestana()" (cerrar)="ficha.set(null)" (cambio)="recargar()" /> }
     @if (rastreo()) { <app-rastreo [presets]="presets()" (cerrar)="rastreo.set(false); recargar()" /> }
     @if (nuevo()) { <app-nuevo-taller [presets]="presets()" (cerrar)="nuevo.set(false)" (creado)="nuevo.set(false); recargar()" /> }
     @switch (herramienta()) {
@@ -320,6 +344,7 @@ export class Prospectos implements OnInit {
   cargando = signal(true);
 
   ficha = signal<number | null>(null);
+  fichaPestana = signal<'resumen' | 'visita' | 'historial'>('resumen');
   rastreo = signal(false);
   nuevo = signal(false);
   herramienta = signal<Herramienta>(null);
@@ -429,6 +454,12 @@ export class Prospectos implements OnInit {
     }
   }
 
+  abrirFicha(id: number, p: 'resumen' | 'visita' | 'historial' = 'resumen') {
+    this.fichaPestana.set(p);
+    this.ficha.set(id);
+  }
+
+  tel = (t: Taller) => telLink(t.telefono);
   color = (e: string) => COLOR_ESTADO[e] ?? '';
   prueba = (t: Taller) => (t.estado === 'En prueba 14 días' ? infoPrueba(t.fecha_inicio_prueba) : null);
   seg = (t: Taller) => seguimiento(t);

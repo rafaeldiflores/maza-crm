@@ -91,3 +91,10 @@ export function urlRuta(talleres: Pick<Taller, 'direccion' | 'comuna'>[]) {
   const puntos = talleres.filter(direccionValida).map((t) => encodeURIComponent(`${t.direccion}, ${t.comuna}, Chile`));
   return puntos.length ? `https://www.google.com/maps/dir/${puntos.join('/')}` : null;
 }
+
+/** Enlace directo para llamada telefónica con un clic */
+export function telLink(tel?: string | null): string | null {
+  if (!tel || tel === 'No especificado') return null;
+  const limpio = tel.replace(/[^\d+]/g, '');
+  return limpio.length >= 7 ? `tel:${limpio}` : null;
+}

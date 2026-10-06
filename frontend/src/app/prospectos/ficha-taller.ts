@@ -276,6 +276,7 @@ export class FichaTaller implements OnInit, OnDestroy {
   private sesion = inject(Sesion);
   id = input.required<number>();
   presets = input<Presets | null>(null);
+  pestanaInicial = input<PestanaFicha>('resumen');
   cerrar = output<void>();
   cambio = output<void>();
 
@@ -308,7 +309,10 @@ export class FichaTaller implements OnInit, OnDestroy {
   plantillas = computed(() => Object.entries(this.presets()?.whatsapp_templates ?? {}).map(([k, v]) => ({ k, titulo: v.titulo })));
   reloj = computed(() => `${String(Math.floor(this.segundos() / 60)).padStart(2, '0')}:${String(this.segundos() % 60).padStart(2, '0')}`);
 
-  async ngOnInit() { await this.cargar(); }
+  async ngOnInit() {
+    if (this.pestanaInicial()) this.pestana.set(this.pestanaInicial());
+    await this.cargar();
+  }
   ngOnDestroy() { this.detener(); }
 
   async cargar() {
