@@ -12,7 +12,7 @@ import { COLOR_PLAN, textoUso } from './comun';
   imports: [FormsModule, Modal],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-modal ancho="40rem" (cerrar)="cerrar.emit()">
+    <app-modal ancho="40rem" (cerrar)="intentarCerrar()">
       <div encabezado>
         @if (d(); as d) {
           <h2 class="text-lg font-bold">{{ d.cuenta.nombreTaller || '(sin nombre)' }}</h2>
@@ -99,9 +99,15 @@ import { COLOR_PLAN, textoUso } from './comun';
           <p class="font-bold text-red-700">Eliminar cuenta</p>
           <p class="text-xs text-slate-600">Borra el taller, sus órdenes, clientes, caja, fotos y el acceso. El equipo queda desvinculado. No se puede deshacer.</p>
           <div class="flex gap-2">
-            <input class="campo" [placeholder]="'Escribe ' + c.email" [(ngModel)]="confirmacion" />
+            <input class="campo" [placeholder]="'Escribe ' + c.email" [(ngModel)]="confirmacion" [disabled]="eliminando()" />
             <button class="btn-peligro btn" [disabled]="confirmacion.trim().toLowerCase() !== c.email.toLowerCase() || eliminando()" (click)="eliminar()">{{ eliminando() ? 'Eliminando…' : 'Eliminar' }}</button>
           </div>
+          @if (eliminando()) {
+            <div class="flex items-center gap-2 pt-1 text-xs text-red-700">
+              <span class="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-red-700 border-t-transparent"></span>
+              <span>Eliminando cuenta y datos asociados en la nube… Por favor espera.</span>
+            </div>
+          }
         </div>
 
         <div class="space-y-1 text-xs">
@@ -213,5 +219,9 @@ export class FichaCuenta implements OnInit {
       this.sesion.avisar('Contraseña cambiada (copiada)');
       this.clave = '';
     } catch (e) { this.sesion.avisar(mensajeError(e), false); }
+  }
+
+  intentarCerrar() {
+    if (!this.eliminando()) this.cerrar.emit();
   }
 }

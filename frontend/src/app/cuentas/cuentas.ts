@@ -36,7 +36,9 @@ import { COLOR_PLAN, textoUso } from './comun';
         <option value="creadoEn">Más recientes</option><option value="vence">Vencen antes</option><option value="nombre">Nombre</option>
       </select>
       @if (marcadas().size) {
-        <button class="btn-peligro btn" (click)="eliminarMarcadas()">Eliminar {{ marcadas().size }} seleccionadas</button>
+        <button class="btn-peligro btn" (click)="abrirConfirmacionEliminar()" [disabled]="eliminandoLote()">
+          Eliminar {{ marcadas().size }} seleccionadas
+        </button>
       }
     </section>
 
@@ -77,6 +79,57 @@ import { COLOR_PLAN, textoUso } from './comun';
         <button class="btn-primario btn w-full" (click)="crear()">Crear</button>
       </app-modal>
     }
+
+    @if (confirmandoEliminarLote()) {
+      <app-modal titulo="Eliminar cuentas seleccionadas" subtitulo="Esta acción no se puede deshacer" ancho="30rem" (cerrar)="cerrarConfirmacionEliminar()">
+        <div class="space-y-4">
+          <p class="text-sm text-slate-700">
+            Vas a borrar permanentemente <b>{{ marcadas().size }}</b> cuentas con todos sus datos (taller, órdenes, clientes, caja, fotos y accesos).
+          </p>
+
+          @if (cuentasMarcadasPagando().length; as pagando) {
+            <div class="rounded border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-800">
+              ⚠️ <b>Atención:</b> {{ pagando }} de las cuentas seleccionadas tienen un plan pagado vigente.
+            </div>
+          }
+
+          <div class="max-h-36 overflow-y-auto rounded border border-borde bg-slate-50 p-2 text-xs">
+            <p class="font-semibold text-slate-600 mb-1">Cuentas a eliminar:</p>
+            <ul class="space-y-1">
+              @for (c of cuentasSeleccionadas(); track c.uid) {
+                <li class="font-mono text-slate-700 truncate">• {{ c.nombreTaller || '(sin nombre)' }} ({{ c.email }})</li>
+              }
+            </ul>
+          </div>
+
+          <div>
+            <label class="etiqueta">Escribe «{{ fraseConfirmacion() }}» para confirmar:</label>
+            <input class="campo" [placeholder]="fraseConfirmacion()" [ngModel]="textoConfirmacionLote()" (ngModelChange)="textoConfirmacionLote.set($event)" [disabled]="eliminandoLote()" />
+          </div>
+
+          @if (eliminandoLote()) {
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-center space-y-3">
+              <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-marca-500 border-t-transparent"></div>
+              <div>
+                <p class="font-bold text-slate-800">Eliminando cuentas en la nube…</p>
+                @if (progresoEliminacion(); as p) {
+                  <p class="text-xs text-slate-600 mt-1">Procesando {{ p.actual }} de {{ p.total }}:</p>
+                  <p class="font-mono text-xs text-slate-700 truncate mt-0.5">{{ p.correo }}</p>
+                }
+              </div>
+              <p class="text-[11px] text-slate-400">Limpiando Firestore, fotos y autenticación. Por favor no cierres esta ventana.</p>
+            </div>
+          } @else {
+            <div class="flex justify-end gap-2">
+              <button class="btn" (click)="cerrarConfirmacionEliminar()">Cancelar</button>
+              <button class="btn-peligro btn" [disabled]="!puedeConfirmarEliminar()" (click)="ejecutarEliminarLote()">
+                Eliminar {{ marcadas().size }} cuentas
+              </button>
+            </div>
+          }
+        </div>
+      </app-modal>
+    }
   `,
 })
 export class Cuentas implements OnInit {
@@ -96,7 +149,16 @@ export class Cuentas implements OnInit {
   talleresCrm = signal<Taller[]>([]);
   nueva: any = {};
   marcadas = signal(new Set<string>());
+  confirmandoEliminarLote = signal(false);
+  textoConfirmacionLote = signal('');
+  eliminandoLote = signal(false);
+  progresoEliminacion = signal<{ actual: number; total: number; correo: string } | null>(null);
   uso = textoUso; f = fecha; generar = generarClave;
+
+  cuentasSeleccionadas = computed(() => this.cuentas().filter((c) => this.marcadas().has(c.uid)));
+  cuentasMarcadasPagando = computed(() => this.cuentasSeleccionadas().filter((c) => ['pro', 'ilimitado', 'empresa'].includes(c.modo)));
+  fraseConfirmacion = computed(() => `ELIMINAR ${this.cuentasSeleccionadas().length}`);
+  puedeConfirmarEliminar = computed(() => this.textoConfirmacionLote().trim().toUpperCase() === this.fraseConfirmacion().toUpperCase());
 
   kpis = computed(() => {
     const m = this.m(); const p = m.porModo || {};
@@ -140,26 +202,42 @@ export class Cuentas implements OnInit {
   marcar(uid: string) { const s = new Set(this.marcadas()); s.has(uid) ? s.delete(uid) : s.add(uid); this.marcadas.set(s); }
   marcarTodas(on: boolean) { this.marcadas.set(on ? new Set(this.lista().map((c) => c.uid)) : new Set()); }
 
-  /** Borrado en lote (cuentas de prueba): se confirma escribiendo ELIMINAR y la
-   * cantidad; cada cuenta va con su propio correo como confirmación al backend. */
-  async eliminarMarcadas() {
-    const sel = this.cuentas().filter((c) => this.marcadas().has(c.uid));
-    const pagando = sel.filter((c) => ['pro', 'ilimitado', 'empresa'].includes(c.modo));
-    const aviso = pagando.length ? `
+  abrirConfirmacionEliminar() {
+    this.textoConfirmacionLote.set('');
+    this.confirmandoEliminarLote.set(true);
+  }
 
-Ojo: ${pagando.length} tienen un plan pagado vigente.` : '';
-    const frase = `ELIMINAR ${sel.length}`;
-    if (prompt(`Vas a borrar ${sel.length} cuentas con todos sus datos. No se puede deshacer.${aviso}
+  cerrarConfirmacionEliminar() {
+    if (this.eliminandoLote()) return;
+    this.confirmandoEliminarLote.set(false);
+    this.textoConfirmacionLote.set('');
+  }
 
-Escribe «${frase}» para confirmar:`) !== frase) return;
+  /** Borrado en lote con indicador visual de progreso en tiempo real. */
+  async ejecutarEliminarLote() {
+    const sel = this.cuentasSeleccionadas();
+    if (!sel.length || !this.puedeConfirmarEliminar()) return;
+    this.eliminandoLote.set(true);
     let ok = 0;
-    for (const c of sel) {
-      try { await this.api.eliminarCuenta(c.uid, c.email); ok++; }
-      catch (e) { this.sesion.avisar(`${c.email}: ${mensajeError(e)}`, false); }
+    try {
+      for (let i = 0; i < sel.length; i++) {
+        const c = sel[i];
+        this.progresoEliminacion.set({ actual: i + 1, total: sel.length, correo: c.email || c.nombreTaller });
+        try {
+          await this.api.eliminarCuenta(c.uid, c.email);
+          ok++;
+        } catch (e) {
+          this.sesion.avisar(`${c.email}: ${mensajeError(e)}`, false);
+        }
+      }
+      this.sesion.avisar(`${ok} de ${sel.length} cuentas eliminadas`);
+      this.marcadas.set(new Set());
+      this.confirmandoEliminarLote.set(false);
+      await this.cargar();
+    } finally {
+      this.eliminandoLote.set(false);
+      this.progresoEliminacion.set(null);
     }
-    this.sesion.avisar(`${ok} de ${sel.length} cuentas eliminadas`);
-    this.marcadas.set(new Set());
-    this.cargar();
   }
 
   async sincronizar() {
