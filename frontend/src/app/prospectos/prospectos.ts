@@ -9,6 +9,7 @@ import { FichaTaller } from './ficha-taller';
 import { Rastreo } from './rastreo';
 import { NuevoTaller } from './nuevo-taller';
 import { Embudo, Ruta, Duplicados, Pitch } from './herramientas';
+import { CdkDrag, CdkDropList, CdkDropListGroup, CdkDragDrop, CdkDragPlaceholder, CdkDragHandle } from '@angular/cdk/drag-drop';
 
 type Vista = 'tarjetas' | 'pipeline';
 type Herramienta = 'embudo' | 'ruta' | 'duplicados' | 'pitch' | null;
@@ -32,7 +33,7 @@ function guardarPrefs(p: Record<string, any>) {
 
 @Component({
   selector: 'app-prospectos',
-  imports: [FormsModule, NgTemplateOutlet, WaPipe, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch],
+  imports: [FormsModule, NgTemplateOutlet, WaPipe, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch, CdkDropListGroup, CdkDropList, CdkDrag, CdkDragPlaceholder, CdkDragHandle],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Encabezado de página y barra de herramientas rápida -->
@@ -222,26 +223,49 @@ function guardarPrefs(p: Record<string, any>) {
         @for (t of talleres(); track t.id) { <ng-container *ngTemplateOutlet="tarjeta; context: { $implicit: t }" /> }
       </div>
     } @else {
-      <div class="grid grid-cols-1 items-start gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <!-- Tablero Kanban interactivo con Drag & Drop -->
+      <div cdkDropListGroup class="flex gap-3 overflow-x-auto pb-4 md:grid md:grid-cols-3 xl:grid-cols-6 md:overflow-visible">
         @for (col of columnas(); track col.estado) {
-          <div class="rounded-lg border border-borde bg-white/60 p-2">
-            <div class="mb-2 flex items-center justify-between px-1">
-              <span class="flex items-center gap-1.5 text-xs font-bold uppercase"><span class="h-2 w-2 rounded-full" [class]="col.punto"></span>{{ col.titulo }}</span>
-              <span class="insignia border-borde bg-fondo">{{ col.items.length }}</span>
+          <div class="flex flex-col rounded-lg border border-borde bg-white/70 p-2 shadow-2xs min-h-[350px] w-[270px] shrink-0 md:w-auto md:shrink">
+            <div class="mb-2 flex items-center justify-between px-1 pb-1.5 border-b border-borde/70">
+              <span class="flex items-center gap-1.5 text-xs font-bold uppercase tracking-tight text-slate-700">
+                <span class="h-2 w-2 rounded-full" [class]="col.punto"></span>{{ col.titulo }}
+              </span>
+              <span class="insignia border-borde bg-white font-mono text-[11px] font-bold">{{ col.items.length }}</span>
             </div>
-            <div class="space-y-2">
-              @for (t of col.items; track t.id) { <ng-container *ngTemplateOutlet="tarjeta; context: { $implicit: t, compacta: true }" /> }
+
+            <!-- Lista de soltado por columna -->
+            <div cdkDropList
+                 [cdkDropListData]="col.items"
+                 (cdkDropListDropped)="soltarEnColumna($event, col.estado)"
+                 class="flex-1 space-y-2 rounded-md p-1 min-h-[140px] transition-colors">
+              @for (t of col.items; track t.id) {
+                <div cdkDrag [cdkDragData]="t" class="cursor-grab active:cursor-grabbing group">
+                  <!-- Placeholder al arrastrar -->
+                  <div *cdkDragPlaceholder class="rounded-lg border-2 border-dashed border-marca-400 bg-marca-50/70 p-6 min-h-[90px]"></div>
+                  <ng-container *ngTemplateOutlet="tarjeta; context: { $implicit: t, compacta: true, enPipeline: true }" />
+                </div>
+              } @empty {
+                <div class="grid place-items-center h-28 rounded-lg border-2 border-dashed border-slate-200 text-center p-3 text-[11px] text-slate-400 select-none">
+                  <span>Arrastra prospectos aquí</span>
+                </div>
+              }
             </div>
           </div>
         }
       </div>
     }
 
-    <ng-template #tarjeta let-t let-compacta="compacta">
-      <article class="tarjeta flex flex-col gap-2 p-3" [class.border-l-4]="t.prioridad !== 'Media'"
+    <ng-template #tarjeta let-t let-compacta="compacta" let-enPipeline="enPipeline">
+      <article class="tarjeta flex flex-col gap-2 p-3 transition-shadow hover:shadow-md" [class.border-l-4]="t.prioridad !== 'Media'"
                [class.!border-l-red-400]="t.prioridad === 'Alta'" [class.!border-l-slate-300]="t.prioridad === 'Baja'">
         <div class="flex items-start justify-between gap-2">
-          <span class="insignia border-marca-200 bg-marca-50 text-marca-700">{{ t.rubro }}</span>
+          <div class="flex items-center gap-1.5">
+            @if (enPipeline) {
+              <span cdkDragHandle class="cursor-grab active:cursor-grabbing select-none text-slate-400 hover:text-slate-700 text-xs py-0.5" title="Arrastra para cambiar de etapa">⠿</span>
+            }
+            <span class="insignia border-marca-200 bg-marca-50 text-marca-700">{{ t.rubro }}</span>
+          </div>
           <select class="insignia cursor-pointer" [class]="color(t.estado)" [ngModel]="t.estado" (ngModelChange)="cambiarEstado(t, $event)">
             @for (e of etapasTodas; track e) { <option [value]="e">{{ e }}</option> }
           </select>
@@ -451,6 +475,28 @@ export class Prospectos implements OnInit {
       this.sesion.avisar(mensajeError(e), false);
     } finally {
       this.guardandoNota.set(null);
+    }
+  }
+
+  async soltarEnColumna(event: CdkDragDrop<Taller[]>, nuevoEstado: Estado) {
+    const taller: Taller = event.item.data;
+    if (!taller) return;
+    if (taller.estado === nuevoEstado) return;
+
+    const estadoAnterior = taller.estado;
+
+    // Actualización optimista inmediata en la UI
+    taller.estado = nuevoEstado;
+    this.talleres.update((lista) => [...lista]);
+
+    try {
+      await this.api.actualizarTaller(taller.id, { estado: nuevoEstado });
+      this.sesion.avisar(`${taller.nombre}: movido a "${nuevoEstado}"`);
+      this.api.stats().then((s) => this.stats.set(s)).catch(() => {});
+    } catch (e) {
+      taller.estado = estadoAnterior;
+      this.talleres.update((lista) => [...lista]);
+      this.sesion.avisar(mensajeError(e), false);
     }
   }
 

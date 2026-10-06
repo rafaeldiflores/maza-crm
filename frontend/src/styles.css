@@ -54,3 +54,21 @@
 
 @keyframes onda { 0%, 100% { height: 4px; } 50% { height: 16px; } }
 .onda { animation: onda 1s infinite ease-in-out; }
+
+/* Drag and Drop CDK Kanban */
+.cdk-drag-preview {
+  box-sizing: border-box;
+  border-radius: 0.5rem;
+  box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.18), 0 8px 12px -6px rgba(0, 0, 0, 0.12);
+  opacity: 0.95;
+  cursor: grabbing !important;
+}
+.cdk-drag-placeholder {
+  opacity: 0.35;
+}
+.cdk-drag-animating {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}
+.cdk-drop-list-dragging .cdk-drag {
+  transition: transform 250ms cubic-bezier(0, 0, 0.2, 1);
+}
