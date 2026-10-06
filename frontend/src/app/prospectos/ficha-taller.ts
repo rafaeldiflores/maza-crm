@@ -211,9 +211,9 @@ type PestanaFicha = 'resumen' | 'visita' | 'historial';
             <button class="btn-primario btn w-full !py-2.5 !text-sm font-bold" [disabled]="guardando()" (click)="guardar()">
               @if (guardando()) {
                 <span class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent mr-2"></span>
-                <span>Guardando y generando informe con IA…</span>
+                <span>Guardando visita…</span>
               } @else {
-                <span>Guardar visita y generar análisis IA</span>
+                <span>Guardar visita</span>
               }
             </button>
           </div>
@@ -239,6 +239,12 @@ type PestanaFicha = 'resumen' | 'visita' | 'historial';
                   <div class="rounded border border-marca-200 bg-marca-50 p-2.5 space-y-1">
                     <p class="font-bold text-marca-800 flex items-center gap-1"><span>✨</span> Análisis generado por IA:</p>
                     <p class="whitespace-pre-line text-slate-700">{{ r.resumen_ia }}</p>
+                  </div>
+                } @else if (r.notas || r.transcripcion) {
+                  <div class="pt-1">
+                    <button class="btn !py-1 text-[11px]" [disabled]="generandoIa() === r.id" (click)="generarInforme(r)">
+                      {{ generandoIa() === r.id ? 'Generando análisis…' : '✨ Generar análisis IA opcional' }}
+                    </button>
                   </div>
                 }
               </div>
@@ -279,6 +285,7 @@ export class FichaTaller implements OnInit, OnDestroy {
   d = signal<DetalleTaller | null>(null);
   evaluando = signal(false);
   guardando = signal(false);
+  generandoIa = signal<number | null>(null);
   grabando = signal(false);
   segundos = signal(0);
   audioUrl = signal<string | null>(null);
@@ -420,10 +427,24 @@ export class FichaTaller implements OnInit, OnDestroy {
     this.guardando.set(true);
     try {
       await this.api.guardarReunion(f);
-      this.sesion.avisar('Visita guardada e informe generado');
+      this.sesion.avisar('Visita guardada');
       this.cambioPendiente = true;
       this.salir();
     } catch (e) { this.sesion.avisar(mensajeError(e), false); }
     finally { this.guardando.set(false); }
+  }
+
+  async generarInforme(r: any) {
+    this.generandoIa.set(r.id);
+    try {
+      const resp = await this.api.generarInformeReunion(r.id);
+      r.resumen_ia = resp.resumen;
+      this.sesion.avisar('Análisis IA generado');
+      this.cambioPendiente = true;
+    } catch (e) {
+      this.sesion.avisar(mensajeError(e), false);
+    } finally {
+      this.generandoIa.set(null);
+    }
   }
 }

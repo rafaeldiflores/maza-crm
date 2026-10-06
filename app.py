@@ -347,6 +347,7 @@ async def create_reunion(
     encargado_nombre: str = Form(""),
     proximo_contacto: str = Form(""),
     prioridad: str = Form(""),
+    generar_ia: bool = Form(False),
     audio_file: Optional[UploadFile] = File(None),
 ):
     taller = db.get_taller_by_id(taller_id)
@@ -365,9 +366,11 @@ async def create_reunion(
         # A Storage en segundo plano: la visita se guarda sin esperar la subida.
         background.add_task(db.subir_audio, filename)
 
-    # Generar informe / resumen si hay notas o transcripción
-    full_text = f"{notas}\n{transcripcion}".strip()
-    ai_report = analyze_meeting(taller["nombre"], taller["rubro"], full_text)
+    # Generar informe / resumen con IA solo si se solicita explícitamente (para no demorar en terreno)
+    ai_report = {}
+    if generar_ia:
+        full_text = f"{notas}\n{transcripcion}".strip()
+        ai_report = analyze_meeting(taller["nombre"], taller["rubro"], full_text)
 
     reunion_data = {
         "tipo": tipo,

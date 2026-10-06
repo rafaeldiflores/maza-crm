@@ -52,6 +52,7 @@ export class Api {
     this.patch<{ onboarding: DetalleTaller['onboarding'] }>(`/api/talleres/${id}/onboarding/${key}`, { completado });
   evaluarIa = (id: number) => this.post<{ taller: Taller }>(`/api/talleres/${id}/evaluar-ia`);
   guardarReunion = (form: FormData) => firstValueFrom(this.http.post<{ ok: boolean }>('/api/reuniones', form));
+  generarInformeReunion = (id: number) => this.post<{ ok: boolean; resumen: string }>(`/api/reuniones/${id}/generar-informe`);
   embudo = () => this.get<{ funnel: { estado: string; count: number; pct_total: number; pct_etapa_anterior: number }[]; total: number; descartados_en_algun_punto: number }>('/api/stats/embudo');
   tendencia = (dias = 14) => this.get<{ fecha: string; nuevos: number; visitas: number }[]>('/api/stats/tendencia', { dias });
   optimizarRuta = (lat: number, lng: number, ids: number[], volver: boolean) =>
