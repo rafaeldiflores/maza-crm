@@ -48,16 +48,38 @@ import { COLOR_PLAN, textoUso } from './comun';
           <tr><th class="w-8 px-3 py-2"><input type="checkbox" [checked]="marcadas().size && marcadas().size === lista().length" (change)="marcarTodas($any($event.target).checked)" /></th><th class="px-3 py-2">Taller</th><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Vence / uso</th><th class="hidden px-3 py-2 md:table-cell">CRM</th><th class="hidden px-3 py-2 md:table-cell">Alta</th></tr>
         </thead>
         <tbody>
-          @for (c of lista(); track c.uid) {
-            <tr class="cursor-pointer border-t border-borde hover:bg-marca-50" (click)="abierta.set(c.uid)">
-              <td class="px-3 py-2" (click)="$event.stopPropagation()"><input type="checkbox" [checked]="marcadas().has(c.uid)" (change)="marcar(c.uid)" /></td>
-              <td class="px-3 py-2"><p class="font-bold">{{ c.nombreTaller || '(sin nombre)' }} @if (c.esFundador) { <span class="text-[10px] text-amber-700">★ {{ c.numeroFundador }}</span> }</p><p class="text-xs text-slate-500">{{ c.email }}</p></td>
-              <td class="px-3 py-2"><span class="insignia" [class]="colorPlan[c.modo]">{{ plan[c.modo] }}</span></td>
-              <td class="px-3 py-2 text-xs">{{ uso(c) }}</td>
-              <td class="hidden px-3 py-2 text-xs md:table-cell">{{ c.crm?.nombre || '—' }}</td>
-              <td class="hidden px-3 py-2 text-xs text-slate-500 md:table-cell">{{ f(c.creadoEn) }}</td>
-            </tr>
-          } @empty { <tr><td colspan="6" class="px-3 py-8 text-center text-slate-500">{{ cargando() ? 'Cargando…' : 'Sin resultados' }}</td></tr> }
+          @if (cargando()) {
+            @for (i of [1, 2, 3, 4, 5]; track i) {
+              <tr class="animate-pulse border-t border-borde">
+                <td class="px-3 py-3"><div class="h-4 w-4 rounded bg-slate-200"></div></td>
+                <td class="px-3 py-3 space-y-1"><div class="h-4 w-32 rounded bg-slate-200"></div><div class="h-3 w-24 rounded bg-slate-100"></div></td>
+                <td class="px-3 py-3"><div class="h-5 w-16 rounded-full bg-slate-200"></div></td>
+                <td class="px-3 py-3"><div class="h-3 w-24 rounded bg-slate-100"></div></td>
+                <td class="hidden px-3 py-3 md:table-cell"><div class="h-3 w-16 rounded bg-slate-100"></div></td>
+                <td class="hidden px-3 py-3 md:table-cell"><div class="h-3 w-16 rounded bg-slate-100"></div></td>
+              </tr>
+            }
+          } @else {
+            @for (c of lista(); track c.uid) {
+              <tr class="cursor-pointer border-t border-borde hover:bg-marca-50" (click)="abierta.set(c.uid)">
+                <td class="px-3 py-2" (click)="$event.stopPropagation()"><input type="checkbox" [checked]="marcadas().has(c.uid)" (change)="marcar(c.uid)" /></td>
+                <td class="px-3 py-2"><p class="font-bold">{{ c.nombreTaller || '(sin nombre)' }} @if (c.esFundador) { <span class="text-[10px] text-amber-700">★ {{ c.numeroFundador }}</span> }</p><p class="text-xs text-slate-500">{{ c.email }}</p></td>
+                <td class="px-3 py-2"><span class="insignia" [class]="colorPlan[c.modo]">{{ plan[c.modo] }}</span></td>
+                <td class="px-3 py-2 text-xs">{{ uso(c) }}</td>
+                <td class="hidden px-3 py-2 text-xs md:table-cell">{{ c.crm?.nombre || '—' }}</td>
+                <td class="hidden px-3 py-2 text-xs text-slate-500 md:table-cell">{{ f(c.creadoEn) }}</td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6" class="px-3 py-10 text-center">
+                  <div class="space-y-1">
+                    <p class="font-bold text-slate-700">Sin resultados</p>
+                    <p class="text-xs text-slate-500">No encontramos cuentas con estos criterios de búsqueda o plan.</p>
+                  </div>
+                </td>
+              </tr>
+            }
+          }
         </tbody>
       </table>
     </div>

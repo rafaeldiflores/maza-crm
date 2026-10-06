@@ -42,14 +42,38 @@ function guardarPrefs(p: Record<string, any>) {
         <h1 class="text-xl font-bold">Talleres</h1>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button class="btn" (click)="nuevo.set(true)">＋ Agregar</button>
-        <button class="btn" (click)="copiarTesters()" title="Correos de los talleres marcados como beta tester, para Play Console">🧪 Testers ({{ testers().length }})</button>
-        <button class="btn" (click)="herramienta.set('ruta')">🧭 Plan de ruta</button>
-        <button class="btn" (click)="herramienta.set('embudo')">📊 Conversión</button>
-        <button class="btn" (click)="herramienta.set('duplicados')">⧉ Duplicados</button>
-        <button class="btn" (click)="herramienta.set('pitch')">💬 Pitch</button>
-        <a class="btn" href="/api/export/excel">Excel</a>
-        <button class="btn-primario btn" (click)="rastreo.set(true)">Rastrear talleres</button>
+        <button class="btn font-semibold" (click)="nuevo.set(true)">＋ Agregar taller</button>
+        <button class="btn-primario btn font-semibold" (click)="rastreo.set(true)">🎯 Rastrear talleres</button>
+        <div class="relative">
+          <button class="btn font-semibold flex items-center gap-1.5" (click)="menuHerramientas.set(!menuHerramientas())">
+            <span>Herramientas</span>
+            <span class="text-[10px] transition-transform duration-200" [class.rotate-180]="menuHerramientas()">▾</span>
+          </button>
+          @if (menuHerramientas()) {
+            <div class="fixed inset-0 z-20" (click)="menuHerramientas.set(false)"></div>
+            <div class="absolute right-0 top-full z-30 mt-1 w-56 rounded-md border border-borde bg-white py-1 shadow-lg text-xs" (click)="menuHerramientas.set(false)">
+              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('ruta')">
+                <span class="text-sm">🧭</span> Plan de ruta
+              </button>
+              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('embudo')">
+                <span class="text-sm">📊</span> Conversión del embudo
+              </button>
+              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('duplicados')">
+                <span class="text-sm">⧉</span> Detectar duplicados
+              </button>
+              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="herramienta.set('pitch')">
+                <span class="text-sm">💬</span> Guía de pitch
+              </button>
+              <div class="my-1 border-t border-borde"></div>
+              <button class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" (click)="copiarTesters()">
+                <span class="text-sm">🧪</span> Copiar testers ({{ testers().length }})
+              </button>
+              <a class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-fondo" href="/api/export/excel">
+                <span class="text-sm">📥</span> Exportar a Excel
+              </a>
+            </div>
+          }
+        </div>
       </div>
     </section>
 
@@ -107,11 +131,68 @@ function guardarPrefs(p: Record<string, any>) {
 
     <!-- Resultados -->
     @if (cargando()) {
-      <p class="py-10 text-center text-sm text-slate-500">Cargando…</p>
+      @if (vista() === 'tarjetas') {
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+          @for (i of [1, 2, 3, 4, 5, 6]; track i) {
+            <div class="tarjeta animate-pulse p-3 space-y-3">
+              <div class="flex justify-between items-center">
+                <div class="h-4 w-20 rounded bg-slate-200"></div>
+                <div class="h-5 w-24 rounded-full bg-slate-200"></div>
+              </div>
+              <div class="space-y-1.5">
+                <div class="h-4 w-3/4 rounded bg-slate-200"></div>
+                <div class="h-3 w-1/2 rounded bg-slate-100"></div>
+              </div>
+              <div class="flex gap-2">
+                <div class="h-4 w-14 rounded bg-slate-100"></div>
+                <div class="h-4 w-16 rounded bg-slate-100"></div>
+              </div>
+              <div class="h-7 w-full rounded bg-slate-100"></div>
+              <div class="flex justify-between pt-2 border-t border-borde">
+                <div class="h-7 w-20 rounded bg-slate-200"></div>
+                <div class="h-7 w-24 rounded bg-slate-200"></div>
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="grid grid-cols-1 items-start gap-3 md:grid-cols-3 xl:grid-cols-6">
+          @for (col of columnas(); track col.estado) {
+            <div class="rounded-lg border border-borde bg-white/60 p-2">
+              <div class="mb-2 flex items-center justify-between px-1">
+                <span class="text-xs font-bold uppercase text-slate-400">{{ col.titulo }}</span>
+                <span class="h-4 w-6 rounded bg-slate-200"></span>
+              </div>
+              <div class="space-y-2">
+                @for (i of [1, 2]; track i) {
+                  <div class="tarjeta animate-pulse p-3 space-y-2">
+                    <div class="h-3 w-16 rounded bg-slate-200"></div>
+                    <div class="h-4 w-28 rounded bg-slate-200"></div>
+                    <div class="h-3 w-20 rounded bg-slate-100"></div>
+                  </div>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
     } @else if (!talleres().length) {
-      <div class="tarjeta py-12 text-center">
-        <p class="font-bold">No hay talleres con estos filtros</p>
-        <button class="btn-primario btn mt-3" (click)="rastreo.set(true)">Rastrear talleres</button>
+      <div class="tarjeta p-8 text-center space-y-3">
+        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-2xl">
+          🔍
+        </div>
+        <div>
+          <p class="text-base font-bold text-slate-800">No hay talleres con estos filtros</p>
+          <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+            Prueba ajustando los filtros de comuna, rubro o búsqueda para ver más prospectos.
+          </p>
+        </div>
+        <div class="flex justify-center gap-2 pt-1">
+          @if (hayFiltros()) {
+            <button class="btn" (click)="limpiar()">Limpiar filtros</button>
+          }
+          <button class="btn-primario btn" (click)="rastreo.set(true)">Rastrear nuevos talleres</button>
+        </div>
       </div>
     } @else if (vista() === 'tarjetas') {
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -156,7 +237,18 @@ function guardarPrefs(p: Record<string, any>) {
           @if (t.beta_tester) { <span class="insignia border-violet-200 bg-violet-50 text-violet-700">🧪 Tester</span> }
         </div>
         @if (!compacta) {
-          <input class="campo !py-1.5 text-xs" placeholder="Nota rápida…" [ngModel]="t.observaciones" (change)="notaRapida(t, $any($event.target).value)" />
+          <div class="relative">
+            <input class="campo !py-1.5 text-xs pr-7 transition-colors"
+                   [class.!border-emerald-500]="notaGuardada() === t.id"
+                   [placeholder]="guardandoNota() === t.id ? 'Guardando nota…' : 'Nota rápida…'"
+                   [ngModel]="t.observaciones"
+                   (change)="notaRapida(t, $any($event.target).value)" />
+            @if (guardandoNota() === t.id) {
+              <span class="absolute right-2 top-2 text-[10px] text-slate-400">⏳</span>
+            } @else if (notaGuardada() === t.id) {
+              <span class="absolute right-2 top-2 text-xs font-bold text-emerald-600">✓</span>
+            }
+          </div>
         }
         <div class="mt-auto flex items-center justify-between gap-2 border-t border-borde pt-2">
           @if (conWa(t)) {
@@ -208,6 +300,9 @@ export class Prospectos implements OnInit {
   rastreo = signal(false);
   nuevo = signal(false);
   herramienta = signal<Herramienta>(null);
+  menuHerramientas = signal(false);
+  guardandoNota = signal<number | null>(null);
+  notaGuardada = signal<number | null>(null);
 
   todosTalleres = signal<Taller[]>([]);
   testers = computed(() => this.todosTalleres().filter((t) => t.beta_tester && t.email));
@@ -299,8 +394,17 @@ export class Prospectos implements OnInit {
 
   async notaRapida(t: Taller, texto: string) {
     if (texto === t.observaciones) return;
-    try { await this.api.actualizarTaller(t.id, { observaciones: texto }); this.sesion.avisar('Nota guardada'); }
-    catch (e) { this.sesion.avisar(mensajeError(e), false); }
+    this.guardandoNota.set(t.id);
+    try {
+      await this.api.actualizarTaller(t.id, { observaciones: texto });
+      t.observaciones = texto;
+      this.notaGuardada.set(t.id);
+      setTimeout(() => { if (this.notaGuardada() === t.id) this.notaGuardada.set(null); }, 2000);
+    } catch (e) {
+      this.sesion.avisar(mensajeError(e), false);
+    } finally {
+      this.guardandoNota.set(null);
+    }
   }
 
   color = (e: string) => COLOR_ESTADO[e] ?? '';

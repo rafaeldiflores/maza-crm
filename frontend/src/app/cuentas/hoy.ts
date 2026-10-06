@@ -13,7 +13,22 @@ import { PASOS, SALUD, waCuenta } from './comun';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Hoy</p><h1 class="text-xl font-bold">A quién llamar</h1></section>
-    @if (cargando()) { <p class="py-10 text-center text-sm text-slate-500">Revisando el uso de cada cuenta…</p> }
+    @if (cargando()) {
+      <div class="space-y-3 mb-4">
+        <p class="text-xs text-slate-500 font-semibold uppercase tracking-wider">Revisando salud de cuentas…</p>
+        <div class="space-y-2">
+          @for (i of [1, 2, 3]; track i) {
+            <div class="tarjeta animate-pulse flex items-center justify-between p-3.5">
+              <div class="space-y-1.5 flex-1">
+                <div class="h-4 w-44 rounded bg-slate-200"></div>
+                <div class="h-3 w-64 rounded bg-slate-100"></div>
+              </div>
+              <div class="h-7 w-20 rounded bg-slate-200"></div>
+            </div>
+          }
+        </div>
+      </div>
+    }
     @else {
       <p class="titulo-seccion mb-2">Cuentas que necesitan un llamado ({{ accion().length }})</p>
       <div class="mb-5 space-y-2">
