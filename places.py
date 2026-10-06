@@ -25,7 +25,7 @@ import nube
 BASE = "https://places.googleapis.com/v1"
 MASCARA_BUSQUEDA = ",".join(f"places.{c}" for c in (
     "id", "displayName", "formattedAddress", "internationalPhoneNumber", "rating",
-    "userRatingCount", "websiteUri", "googleMapsUri", "businessStatus", "primaryType",
+    "userRatingCount", "websiteUri", "googleMapsUri", "businessStatus", "primaryType", "location",
 )) + ",nextPageToken"
 MASCARA_DETALLE = "id,displayName,types,primaryType,rating,userRatingCount,reviews,editorialSummary,regularOpeningHours.weekdayDescriptions"
 
@@ -74,6 +74,9 @@ def buscar(consulta: str, comuna: str, maximo: int = 20) -> Iterator[Dict[str, A
                 continue
             nombre = (p.get("displayName") or {}).get("text", "").strip()
             telefono = clean_phone(p.get("internationalPhoneNumber"))
+            loc = p.get("location") or {}
+            lat = loc.get("latitude")
+            lng = loc.get("longitude")
             entregados += 1
             yield {
                 "place_id": p["id"],
@@ -86,6 +89,8 @@ def buscar(consulta: str, comuna: str, maximo: int = 20) -> Iterator[Dict[str, A
                 "Opiniones": str(p.get("userRatingCount", 0)),
                 "Sitio Web": p.get("websiteUri", ""),
                 "Google Maps": p.get("googleMapsUri", ""),
+                "lat": lat,
+                "lng": lng,
             }
         token = datos.get("nextPageToken")
         if not token:

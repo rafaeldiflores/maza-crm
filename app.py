@@ -145,6 +145,8 @@ class TallerUpdate(BaseModel):
     proximo_contacto: Optional[str] = None
     email: Optional[str] = None
     beta_tester: Optional[bool] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 class ScrapeRequest(BaseModel):
     comunas: List[str]
@@ -159,6 +161,8 @@ class TallerCreate(BaseModel):
     direccion: str = ""
     telefono: str = ""
     email: str = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 app.include_router(maza_rutas.router)
 
@@ -268,6 +272,8 @@ def create_taller_endpoint(data: TallerCreate):
         "telefono": telefono_limpio,
         "whatsapp_link": whatsapp_link,
         "email": data.email,
+        "lat": data.lat,
+        "lng": data.lng,
     })
     if new_id is None:
         raise HTTPException(status_code=409, detail="Ya existe un taller con ese nombre en esa comuna")

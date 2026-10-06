@@ -10,8 +10,9 @@ import { Rastreo } from './rastreo';
 import { NuevoTaller } from './nuevo-taller';
 import { Embudo, Ruta, Duplicados, Pitch } from './herramientas';
 import { CdkDrag, CdkDropList, CdkDropListGroup, CdkDragDrop, CdkDragPlaceholder, CdkDragHandle } from '@angular/cdk/drag-drop';
+import { MapaProspectos } from './mapa';
 
-type Vista = 'tarjetas' | 'pipeline';
+type Vista = 'tarjetas' | 'pipeline' | 'mapa';
 type Herramienta = 'embudo' | 'ruta' | 'duplicados' | 'pitch' | null;
 
 const COLUMNAS: { estado: Estado; titulo: string; punto: string }[] = [
@@ -33,7 +34,7 @@ function guardarPrefs(p: Record<string, any>) {
 
 @Component({
   selector: 'app-prospectos',
-  imports: [FormsModule, NgTemplateOutlet, WaPipe, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch, CdkDropListGroup, CdkDropList, CdkDrag, CdkDragPlaceholder, CdkDragHandle],
+  imports: [FormsModule, NgTemplateOutlet, WaPipe, FichaTaller, Rastreo, NuevoTaller, Embudo, Ruta, Duplicados, Pitch, CdkDropListGroup, CdkDropList, CdkDrag, CdkDragPlaceholder, CdkDragHandle, MapaProspectos],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <!-- Encabezado de página y barra de herramientas rápida -->
@@ -77,6 +78,14 @@ function guardarPrefs(p: Record<string, any>) {
           <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
                   (click)="herramienta.set('pitch')">
             <span>💬</span> Guía pitch
+          </button>
+
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  [class.!border-marca-400]="vista() === 'mapa'"
+                  [class.!bg-marca-50]="vista() === 'mapa'"
+                  [class.!text-marca-800]="vista() === 'mapa'"
+                  (click)="cambiarVista('mapa')">
+            <span>🗺️</span> Mapa
           </button>
         </div>
 
@@ -125,6 +134,7 @@ function guardarPrefs(p: Record<string, any>) {
         <div class="flex rounded-md border border-borde p-0.5 text-xs font-semibold">
           <button class="rounded px-3 py-1" [class.bg-marca-50]="vista() === 'tarjetas'" (click)="cambiarVista('tarjetas')">Tarjetas</button>
           <button class="rounded px-3 py-1" [class.bg-marca-50]="vista() === 'pipeline'" (click)="cambiarVista('pipeline')">Pipeline</button>
+          <button class="rounded px-3 py-1" [class.bg-marca-50]="vista() === 'mapa'" (click)="cambiarVista('mapa')">🗺️ Mapa</button>
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
@@ -222,7 +232,7 @@ function guardarPrefs(p: Record<string, any>) {
       <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         @for (t of talleres(); track t.id) { <ng-container *ngTemplateOutlet="tarjeta; context: { $implicit: t }" /> }
       </div>
-    } @else {
+    } @else if (vista() === 'pipeline') {
       <!-- Tablero Kanban interactivo con Drag & Drop -->
       <div cdkDropListGroup class="flex gap-3 overflow-x-auto pb-4 md:grid md:grid-cols-3 xl:grid-cols-6 md:overflow-visible">
         @for (col of columnas(); track col.estado) {
@@ -254,6 +264,9 @@ function guardarPrefs(p: Record<string, any>) {
           </div>
         }
       </div>
+    } @else {
+      <!-- Mapa del Merodeador con geolocalización y pines por etapa -->
+      <app-mapa [talleres]="talleres()" [presets]="presets()" (abrirFicha)="abrirFicha($event, 'resumen')" (abrirVisita)="abrirFicha($event, 'visita')" />
     }
 
     <ng-template #tarjeta let-t let-compacta="compacta" let-enPipeline="enPipeline">

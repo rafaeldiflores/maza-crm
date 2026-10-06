@@ -31,6 +31,8 @@ export interface Taller {
   email: string;
   beta_tester: boolean;
   place_id: string;
+  lat?: number | null;
+  lng?: number | null;
   puntaje_ia: number | null;
   ia_calza: boolean | null;
   ia_multirubro: boolean | null;

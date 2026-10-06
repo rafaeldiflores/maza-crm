@@ -55,7 +55,7 @@ CAMPOS_TALLER = {
     "maza_uid": "",
     "email": "", "beta_tester": False,
     # Places API + evaluación con IA (places.py, ia_prospectos.py)
-    "place_id": "", "puntaje_ia": None, "ia_calza": None, "ia_rubros": [], "ia_multirubro": None,
+    "place_id": "", "lat": None, "lng": None, "puntaje_ia": None, "ia_calza": None, "ia_rubros": [], "ia_multirubro": None,
     "ia_dolores": [], "ia_motivo": "", "ia_mensaje": "", "ia_evaluado_en": "",
 }
 CAMPOS_REUNION = {
@@ -240,6 +240,8 @@ def save_scraped_workshops(workshops: List[Dict[str, Any]]) -> int:
             "opiniones": w.get("Opiniones", "0"),
             "sitio_web": w.get("Sitio Web", ""),
             "maps_url": w.get("Google Maps", ""),
+            "lat": w.get("lat"),
+            "lng": w.get("lng"),
         }
 
         place_id = w.get("place_id", "")
@@ -271,6 +273,9 @@ def save_scraped_workshops(workshops: List[Dict[str, Any]]) -> int:
             cambios["telefono"] = nuevo["telefono"]
         if nuevo["whatsapp_link"] not in ("", "N/A"):
             cambios["whatsapp_link"] = nuevo["whatsapp_link"]
+        if nuevo.get("lat") is not None and nuevo.get("lng") is not None:
+            cambios["lat"] = nuevo["lat"]
+            cambios["lng"] = nuevo["lng"]
         if place_id:
             cambios["place_id"] = place_id
         cambios = {k: v for k, v in cambios.items() if existente.get(k) != v}
@@ -383,7 +388,7 @@ def update_taller(taller_id: int, fields: Dict[str, Any]) -> bool:
     allowed = {
         "estado", "prioridad", "interes", "encargado_nombre",
         "observaciones", "telefono", "whatsapp_link", "proximo_contacto", "fecha_ultima_visita",
-        "maza_uid", "email", "beta_tester",
+        "maza_uid", "email", "beta_tester", "lat", "lng",
     }
     cambios = {k: v for k, v in fields.items() if k in allowed}
     actual = get_taller_by_id(taller_id)
@@ -728,6 +733,8 @@ def create_taller_manual(data: Dict[str, Any]) -> Optional[int]:
         "telefono": data.get("telefono", ""),
         "whatsapp_link": data.get("whatsapp_link", ""),
         "email": (data.get("email") or "").strip().lower(),
+        "lat": data.get("lat"),
+        "lng": data.get("lng"),
         "estado": "Por consultar",
         "fecha_creacion": _ahora(),
     })
