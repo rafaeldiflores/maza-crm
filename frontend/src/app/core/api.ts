@@ -2,7 +2,7 @@ import { HttpClient, HttpInterceptorFn, HttpErrorResponse, HttpParams } from '@a
 import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom, catchError, throwError } from 'rxjs';
 import {
-  Cuenta, CuentaSalud, DetalleCuenta, DetalleTaller, Presets, Salud, Stats, Taller,
+  Cuenta, CuentaSalud, DetalleCuenta, DetalleTaller, Invitacion, Presets, Salud, Stats, Taller,
 } from './modelos';
 
 /**
@@ -72,6 +72,9 @@ export class Api {
   cambiarClave = (uid: string, password: string) => this.post(`/api/maza/cuentas/${encodeURIComponent(uid)}/password`, { password });
   eliminarCuenta = (uid: string, confirmacion: string) => this.post<{ tipo: string }>(`/api/maza/cuentas/${encodeURIComponent(uid)}/eliminar`, { confirmacion });
   crearCuenta = (d: unknown) => this.post<{ uid: string }>('/api/maza/cuentas', d);
+  invitaciones = () => this.get<Invitacion[]>('/api/maza/invitaciones');
+  crearInvitacion = (taller: string, nota = '') => this.post<Invitacion & { mensaje: string }>('/api/maza/invitaciones', { taller, nota });
+  anularInvitacion = (codigo: string) => this.post(`/api/maza/invitaciones/${encodeURIComponent(codigo)}/anular`);
   vincular = (tallerCrmId: number, uid: string | null) => this.post('/api/maza/vincular', { tallerCrmId, uid });
   sincronizar = () => this.post<{ cambios: number }>('/api/maza/sincronizar');
   pagos = () => this.get<any[]>('/api/maza/pagos');

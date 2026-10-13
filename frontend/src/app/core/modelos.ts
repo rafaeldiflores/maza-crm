@@ -142,3 +142,16 @@ export const NOMBRE_PLAN: Record<string, string> = {
   trial: 'Prueba', trial_expirado: 'Prueba vencida', pro: 'Taller Solo', ilimitado: 'Taller Pro',
   empresa: 'Empresa', basico: 'Básico (legado)',
 };
+
+/** Invitación de un solo uso para crear una cuenta (talleres fundadores). */
+export interface Invitacion {
+  codigo: string;
+  taller: string;
+  nota?: string;
+  usado: boolean;
+  creadoEn: string;
+  creadoPor?: string;
+  link: string;
+  usadoPor?: string;
+  usadoEn?: string;
+}

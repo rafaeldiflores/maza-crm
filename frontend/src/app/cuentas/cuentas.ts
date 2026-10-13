@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Api, Sesion, mensajeError } from '../core/api';
-import { Cuenta, NOMBRE_PLAN, Taller } from '../core/modelos';
+import { Cuenta, Invitacion, NOMBRE_PLAN, Taller } from '../core/modelos';
 import { fecha, generarClave } from '../core/utiles';
 import { Modal } from '../compartido/modal';
 import { FichaCuenta } from './ficha-cuenta';
@@ -16,7 +16,8 @@ import { COLOR_PLAN, textoUso } from './comun';
       <div><p class="titulo-seccion">Cuentas MAZA</p><h1 class="text-xl font-bold">Talleres y planes</h1></div>
       <div class="flex gap-2">
         <button class="btn" (click)="sincronizar()" title="Pasa la etapa del embudo de cada taller vinculado a su plan real">Sincronizar embudo</button>
-        <button class="btn-primario btn" (click)="abrirCrear()">Crear cuenta</button>
+        <button class="btn" (click)="abrirCrear()">Crear cuenta</button>
+        <button class="btn-primario btn" (click)="abrirInvitar()" title="Código de un solo uso para que el taller cree su cuenta (talleres fundadores)">Invitar taller</button>
       </div>
     </section>
 
@@ -102,6 +103,53 @@ import { COLOR_PLAN, textoUso } from './comun';
       </app-modal>
     }
 
+    @if (invitando()) {
+      <app-modal titulo="Invitar taller" subtitulo="MAZA entra por invitación: cada código sirve para crear una sola cuenta." ancho="34rem" (cerrar)="invitando.set(false)">
+        @if (invitacionNueva(); as inv) {
+          <div class="space-y-2 rounded border border-emerald-300 bg-emerald-50 p-3">
+            <p class="text-xs font-bold uppercase text-emerald-800">Invitación lista · {{ inv.taller }}</p>
+            <p class="font-mono text-lg font-bold">{{ inv.codigo }}</p>
+            <p class="break-all font-mono text-xs text-slate-600">{{ inv.link }}</p>
+            <textarea class="campo h-28 text-xs" readonly [value]="inv.mensaje"></textarea>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn-primario btn" (click)="copiar(inv.mensaje, 'Mensaje copiado')">Copiar mensaje</button>
+              <a class="btn" [href]="waInvitacion(inv.mensaje)" target="_blank" rel="noreferrer">Abrir WhatsApp</a>
+              <button class="btn" (click)="copiar(inv.link, 'Link copiado')">Copiar link</button>
+              <button class="btn" (click)="invitacionNueva.set(null)">Otra invitación</button>
+            </div>
+          </div>
+        } @else {
+          <div><label class="etiqueta">Nombre del taller</label><input class="campo" [(ngModel)]="invitar.taller" placeholder="Ej.: Taller Central" /></div>
+          <div><label class="etiqueta">Nota (opcional, solo para ti)</label><input class="campo" [(ngModel)]="invitar.nota" placeholder="Ej.: lo conocí en la feria de San Antonio" /></div>
+          <button class="btn-primario btn w-full" [disabled]="!invitar.taller.trim() || generandoInvitacion()" (click)="crearInvitacion()">Generar invitación</button>
+        }
+
+        <div class="mt-4">
+          <p class="etiqueta">Invitaciones ({{ pendientes() }} sin usar)</p>
+          <div class="max-h-56 overflow-y-auto rounded border border-borde">
+            @for (i of invitaciones(); track i.codigo) {
+              <div class="flex items-center justify-between gap-2 border-b border-borde px-2 py-1.5 text-xs last:border-0">
+                <div class="min-w-0">
+                  <p class="truncate font-bold">{{ i.taller }}</p>
+                  <p class="font-mono text-slate-500">{{ i.codigo }} · {{ f(i.creadoEn) }}</p>
+                </div>
+                @if (i.usado) {
+                  <span class="insignia bg-emerald-100 text-emerald-800">Usada {{ f(i.usadoEn) }}</span>
+                } @else {
+                  <div class="flex shrink-0 gap-1">
+                    <button class="btn !px-2 !py-1 text-[11px]" (click)="copiar(i.link, 'Link copiado')">Link</button>
+                    <button class="btn-peligro btn !px-2 !py-1 text-[11px]" (click)="anularInvitacion(i)">Anular</button>
+                  </div>
+                }
+              </div>
+            } @empty {
+              <p class="px-2 py-4 text-center text-xs text-slate-500">Todavía no hay invitaciones.</p>
+            }
+          </div>
+        </div>
+      </app-modal>
+    }
+
     @if (confirmandoEliminarLote()) {
       <app-modal titulo="Eliminar cuentas seleccionadas" subtitulo="Esta acción no se puede deshacer" ancho="30rem" (cerrar)="cerrarConfirmacionEliminar()">
         <div class="space-y-4">
@@ -177,6 +225,14 @@ export class Cuentas implements OnInit {
   progresoEliminacion = signal<{ actual: number; total: number; correo: string } | null>(null);
   uso = textoUso; f = fecha; generar = generarClave;
 
+  // Invitaciones (talleres fundadores)
+  invitando = signal(false);
+  invitaciones = signal<Invitacion[]>([]);
+  invitacionNueva = signal<(Invitacion & { mensaje: string }) | null>(null);
+  generandoInvitacion = signal(false);
+  invitar = { taller: '', nota: '' };
+  pendientes = computed(() => this.invitaciones().filter((i) => !i.usado).length);
+
   cuentasSeleccionadas = computed(() => this.cuentas().filter((c) => this.marcadas().has(c.uid)));
   cuentasMarcadasPagando = computed(() => this.cuentasSeleccionadas().filter((c) => ['pro', 'ilimitado', 'empresa'].includes(c.modo)));
   fraseConfirmacion = computed(() => `ELIMINAR ${this.cuentasSeleccionadas().length}`);
@@ -220,6 +276,42 @@ export class Cuentas implements OnInit {
       this.abierta.set(r.uid);
     } catch (e) { this.sesion.avisar(mensajeError(e), false); }
   }
+
+  async abrirInvitar() {
+    this.invitar = { taller: '', nota: '' };
+    this.invitacionNueva.set(null);
+    this.invitando.set(true);
+    await this.cargarInvitaciones();
+  }
+
+  async cargarInvitaciones() {
+    try { this.invitaciones.set(await this.api.invitaciones()); }
+    catch (e) { this.sesion.avisar(mensajeError(e), false); }
+  }
+
+  async crearInvitacion() {
+    this.generandoInvitacion.set(true);
+    try {
+      this.invitacionNueva.set(await this.api.crearInvitacion(this.invitar.taller.trim(), this.invitar.nota.trim()));
+      this.invitar = { taller: '', nota: '' };
+      await this.cargarInvitaciones();
+    } catch (e) { this.sesion.avisar(mensajeError(e), false); }
+    finally { this.generandoInvitacion.set(false); }
+  }
+
+  async anularInvitacion(i: Invitacion) {
+    if (!confirm(`¿Anular la invitación de ${i.taller} (${i.codigo})? El link deja de servir.`)) return;
+    try { await this.api.anularInvitacion(i.codigo); this.sesion.avisar('Invitación anulada'); await this.cargarInvitaciones(); }
+    catch (e) { this.sesion.avisar(mensajeError(e), false); }
+  }
+
+  async copiar(texto: string, aviso: string) {
+    await navigator.clipboard?.writeText(texto).catch(() => {});
+    this.sesion.avisar(aviso);
+  }
+
+  /** WhatsApp sin número: Rafa elige el contacto. */
+  waInvitacion(mensaje: string) { return `https://wa.me/?text=${encodeURIComponent(mensaje)}`; }
 
   marcar(uid: string) { const s = new Set(this.marcadas()); s.has(uid) ? s.delete(uid) : s.add(uid); this.marcadas.set(s); }
   marcarTodas(on: boolean) { this.marcadas.set(on ? new Set(this.lista().map((c) => c.uid)) : new Set()); }

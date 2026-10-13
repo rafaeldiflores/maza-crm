@@ -50,6 +50,11 @@ class CuentaNueva(BaseModel):
     tallerCrmId: Optional[int] = None
 
 
+class InvitacionNueva(BaseModel):
+    taller: str
+    nota: str = ""
+
+
 class PasswordNueva(BaseModel):
     password: str
 
@@ -98,6 +103,22 @@ def crear(nueva: CuentaNueva):
         db.update_taller(nueva.tallerCrmId, {"maza_uid": r["uid"]})
         _sincronizar_uno(r["uid"], r["cuenta"])
     return r
+
+
+@router.get("/invitaciones")
+def invitaciones():
+    return _llamar(maza_admin.listar_invitaciones)
+
+
+@router.post("/invitaciones")
+def crear_invitacion(nueva: InvitacionNueva):
+    return _llamar(maza_admin.crear_invitacion, nueva.taller, nueva.nota)
+
+
+@router.post("/invitaciones/{codigo}/anular")
+def anular_invitacion(codigo: str):
+    _llamar(maza_admin.anular_invitacion, codigo)
+    return {"ok": True}
 
 
 @router.post("/cuentas/{uid}/password")

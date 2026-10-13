@@ -19,6 +19,7 @@ MAZA_EMULADOR=1 apunta al emulador de Firebase (ver nube.py).
 from __future__ import annotations
 
 import contextvars
+import secrets
 import copy
 import os
 import threading
@@ -409,6 +410,86 @@ def crear_cuenta(email: str, password: str, nombre_taller: str, plan: str = "tri
 
     _auditar("crear_cuenta", usuario.uid, None, {"email": email, "plan": plan, "nombreTaller": nombre_taller})
     return {"uid": usuario.uid, "cuenta": _fila(usuario.uid, perfil)}
+
+
+# ─── Invitaciones (talleres fundadores) ──────────────────────────────────────
+# MAZA entra por invitación: cada taller recibe un código de un solo uso que
+# la app pide al crear la cuenta (las reglas de Firestore validan que exista y
+# no esté usado, y la app lo marca usado en el mismo alta). Solo el CRM, con
+# firebase-admin, crea o anula invitaciones; ningún cliente puede listarlas.
+#   invitaciones/{codigo}  { codigo, taller, nota, usado, creadoEn, creadoPor,
+#                            link, [usadoPor, usadoEn] }
+
+ALFABETO_INVITACION = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # sin 0/O ni 1/I
+URL_INVITACION = "https://mazataller.com/app/registrar?inv="
+
+
+def _codigo_invitacion() -> str:
+    bloque = lambda: "".join(secrets.choice(ALFABETO_INVITACION) for _ in range(4))
+    return f"MAZA-{bloque()}-{bloque()}"
+
+
+def mensaje_invitacion(taller: str, link: str, codigo: str) -> str:
+    """Texto listo para pegar en WhatsApp (voz de marca, sin precios)."""
+    saludo = f"¡Hola, equipo de {taller}!" if taller else "¡Hola!"
+    return (
+        f"{saludo} Su taller quedó elegido como taller fundador de MAZA.\n\n"
+        f"Con este link crean su cuenta: {link}\n"
+        f"(si la app les pide el código: {codigo})\n\n"
+        "Es de un solo uso. Cualquier duda, nos escriben por acá."
+    )
+
+
+def crear_invitacion(taller: str, nota: str = "") -> Dict[str, Any]:
+    taller = (taller or "").strip()
+    nota = (nota or "").strip()
+    if not taller:
+        raise ErrorAdmin("Indica el nombre del taller al que va la invitación.")
+    from google.api_core.exceptions import AlreadyExists
+
+    for _ in range(5):  # choque de código: prácticamente imposible, igual se reintenta
+        codigo = _codigo_invitacion()
+        link = URL_INVITACION + codigo
+        datos = {
+            "codigo": codigo,
+            "taller": taller,
+            "nota": nota,
+            "usado": False,
+            "creadoEn": _ahora_iso(),
+            "creadoPor": actor(),
+            "link": link,
+        }
+        try:
+            _db().collection("invitaciones").document(codigo).create(datos)
+            break
+        except AlreadyExists:
+            continue
+    else:
+        raise ErrorAdmin("No se pudo generar un código libre. Intenta de nuevo.")
+
+    _auditar("crear_invitacion", None, None, {"codigo": codigo, "taller": taller})
+    return {**datos, "mensaje": mensaje_invitacion(taller, link, codigo)}
+
+
+def listar_invitaciones(maximo: int = 200) -> List[Dict[str, Any]]:
+    from google.cloud.firestore_v1 import Query
+
+    docs = (_db().collection("invitaciones")
+            .order_by("creadoEn", direction=Query.DESCENDING).limit(maximo).stream())
+    return [_serializable(d.to_dict()) for d in docs]
+
+
+def anular_invitacion(codigo: str) -> None:
+    """Borra una invitación que no se usó (la app la deja de aceptar al tiro)."""
+    ref = _db().collection("invitaciones").document((codigo or "").strip().upper())
+    snap = ref.get()
+    if not snap.exists:
+        raise ErrorAdmin("Esa invitación no existe.")
+    datos = snap.to_dict() or {}
+    if datos.get("usado"):
+        raise ErrorAdmin("Esa invitación ya se usó: la cuenta existe y no se puede anular desde acá.")
+    ref.delete()
+    _auditar("anular_invitacion", None, _serializable(datos), None)
 
 
 def resetear_password(uid: str, nueva: str) -> None:
