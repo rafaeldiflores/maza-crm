@@ -73,8 +73,9 @@ export class Api {
   eliminarCuenta = (uid: string, confirmacion: string) => this.post<{ tipo: string }>(`/api/maza/cuentas/${encodeURIComponent(uid)}/eliminar`, { confirmacion });
   crearCuenta = (d: unknown) => this.post<{ uid: string }>('/api/maza/cuentas', d);
   invitaciones = () => this.get<Invitacion[]>('/api/maza/invitaciones');
-  crearInvitacion = (taller: string, nota = '') => this.post<Invitacion & { mensaje: string }>('/api/maza/invitaciones', { taller, nota });
+  crearInvitacion = (taller: string, nota = '', email?: string) => this.post<Invitacion & { mensaje: string; correoEnviado?: boolean }>('/api/maza/invitaciones', { taller, nota, email });
   anularInvitacion = (codigo: string) => this.post(`/api/maza/invitaciones/${encodeURIComponent(codigo)}/anular`);
+
   vincular = (tallerCrmId: number, uid: string | null) => this.post('/api/maza/vincular', { tallerCrmId, uid });
   sincronizar = () => this.post<{ cambios: number }>('/api/maza/sincronizar');
   pagos = () => this.get<any[]>('/api/maza/pagos');

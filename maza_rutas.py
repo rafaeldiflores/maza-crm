@@ -53,6 +53,7 @@ class CuentaNueva(BaseModel):
 class InvitacionNueva(BaseModel):
     taller: str
     nota: str = ""
+    email: Optional[str] = None
 
 
 class PasswordNueva(BaseModel):
@@ -112,7 +113,8 @@ def invitaciones():
 
 @router.post("/invitaciones")
 def crear_invitacion(nueva: InvitacionNueva):
-    return _llamar(maza_admin.crear_invitacion, nueva.taller, nueva.nota)
+    return _llamar(maza_admin.crear_invitacion, nueva.taller, nueva.nota, nueva.email)
+
 
 
 @router.post("/invitaciones/{codigo}/anular")

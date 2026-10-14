@@ -110,6 +110,13 @@ import { COLOR_PLAN, textoUso } from './comun';
             <p class="text-xs font-bold uppercase text-emerald-800">Invitación lista · {{ inv.taller }}</p>
             <p class="font-mono text-lg font-bold">{{ inv.codigo }}</p>
             <p class="break-all font-mono text-xs text-slate-600">{{ inv.link }}</p>
+            @if (inv.email) {
+              @if (inv.correoEnviado) {
+                <p class="text-xs font-semibold text-emerald-700">✓ Correo oficial de Taller Fundador enviado a {{ inv.email }} vía Brevo</p>
+              } @else {
+                <p class="text-xs font-semibold text-amber-700">⚠ No se pudo enviar el correo a {{ inv.email }} (verificar BREVO_API_KEY)</p>
+              }
+            }
             <textarea class="campo h-28 text-xs" readonly [value]="inv.mensaje"></textarea>
             <div class="flex flex-wrap gap-2">
               <button class="btn-primario btn" (click)="copiar(inv.mensaje, 'Mensaje copiado')">Copiar mensaje</button>
@@ -120,6 +127,7 @@ import { COLOR_PLAN, textoUso } from './comun';
           </div>
         } @else {
           <div><label class="etiqueta">Nombre del taller</label><input class="campo" [(ngModel)]="invitar.taller" placeholder="Ej.: Taller Central" /></div>
+          <div><label class="etiqueta">Correo de destino (opcional, para despacho oficial vía Brevo)</label><input type="email" class="campo" [(ngModel)]="invitar.email" placeholder="Ej.: contacto@tallercentral.cl" /></div>
           <div><label class="etiqueta">Nota (opcional, solo para ti)</label><input class="campo" [(ngModel)]="invitar.nota" placeholder="Ej.: lo conocí en la feria de San Antonio" /></div>
           <button class="btn-primario btn w-full" [disabled]="!invitar.taller.trim() || generandoInvitacion()" (click)="crearInvitacion()">Generar invitación</button>
         }
@@ -131,8 +139,14 @@ import { COLOR_PLAN, textoUso } from './comun';
               <div class="flex items-center justify-between gap-2 border-b border-borde px-2 py-1.5 text-xs last:border-0">
                 <div class="min-w-0">
                   <p class="truncate font-bold">{{ i.taller }}</p>
-                  <p class="font-mono text-slate-500">{{ i.codigo }} · {{ f(i.creadoEn) }}</p>
+                  <p class="font-mono text-slate-500">
+                    {{ i.codigo }} · {{ f(i.creadoEn) }}
+                    @if (i.email) {
+                      <span class="text-slate-400">· {{ i.email }}</span>
+                    }
+                  </p>
                 </div>
+
                 @if (i.usado) {
                   <span class="insignia bg-emerald-100 text-emerald-800">Usada {{ f(i.usadoEn) }}</span>
                 } @else {
@@ -228,9 +242,9 @@ export class Cuentas implements OnInit {
   // Invitaciones (talleres fundadores)
   invitando = signal(false);
   invitaciones = signal<Invitacion[]>([]);
-  invitacionNueva = signal<(Invitacion & { mensaje: string }) | null>(null);
+  invitacionNueva = signal<(Invitacion & { mensaje: string; correoEnviado?: boolean }) | null>(null);
   generandoInvitacion = signal(false);
-  invitar = { taller: '', nota: '' };
+  invitar = { taller: '', nota: '', email: '' };
   pendientes = computed(() => this.invitaciones().filter((i) => !i.usado).length);
 
   cuentasSeleccionadas = computed(() => this.cuentas().filter((c) => this.marcadas().has(c.uid)));
@@ -278,7 +292,7 @@ export class Cuentas implements OnInit {
   }
 
   async abrirInvitar() {
-    this.invitar = { taller: '', nota: '' };
+    this.invitar = { taller: '', nota: '', email: '' };
     this.invitacionNueva.set(null);
     this.invitando.set(true);
     await this.cargarInvitaciones();
@@ -292,12 +306,17 @@ export class Cuentas implements OnInit {
   async crearInvitacion() {
     this.generandoInvitacion.set(true);
     try {
-      this.invitacionNueva.set(await this.api.crearInvitacion(this.invitar.taller.trim(), this.invitar.nota.trim()));
-      this.invitar = { taller: '', nota: '' };
+      this.invitacionNueva.set(await this.api.crearInvitacion(
+        this.invitar.taller.trim(),
+        this.invitar.nota.trim(),
+        this.invitar.email.trim() || undefined
+      ));
+      this.invitar = { taller: '', nota: '', email: '' };
       await this.cargarInvitaciones();
     } catch (e) { this.sesion.avisar(mensajeError(e), false); }
     finally { this.generandoInvitacion.set(false); }
   }
+
 
   async anularInvitacion(i: Invitacion) {
     if (!confirm(`¿Anular la invitación de ${i.taller} (${i.codigo})? El link deja de servir.`)) return;

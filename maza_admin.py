@@ -29,10 +29,15 @@ import shutil
 import subprocess
 from datetime import datetime, timezone, timedelta
 from functools import lru_cache
+import logging
 from typing import Any, Dict, List, Optional
 
+import brevo
 import nube
 from nube import EMULADOR, PROYECTO
+
+logger = logging.getLogger("maza_admin")
+
 
 PLANES_PAGO = ("pro", "ilimitado", "empresa")
 PLANES_VALIDOS = ("trial", "basico", *PLANES_PAGO)
@@ -440,9 +445,10 @@ def mensaje_invitacion(taller: str, link: str, codigo: str) -> str:
     )
 
 
-def crear_invitacion(taller: str, nota: str = "") -> Dict[str, Any]:
+def crear_invitacion(taller: str, nota: str = "", email: Optional[str] = None) -> Dict[str, Any]:
     taller = (taller or "").strip()
     nota = (nota or "").strip()
+    email_limpio = (email or "").strip() or None
     if not taller:
         raise ErrorAdmin("Indica el nombre del taller al que va la invitación.")
     from google.api_core.exceptions import AlreadyExists
@@ -450,7 +456,7 @@ def crear_invitacion(taller: str, nota: str = "") -> Dict[str, Any]:
     for _ in range(5):  # choque de código: prácticamente imposible, igual se reintenta
         codigo = _codigo_invitacion()
         link = URL_INVITACION + codigo
-        datos = {
+        datos: Dict[str, Any] = {
             "codigo": codigo,
             "taller": taller,
             "nota": nota,
@@ -459,6 +465,9 @@ def crear_invitacion(taller: str, nota: str = "") -> Dict[str, Any]:
             "creadoPor": actor(),
             "link": link,
         }
+        if email_limpio:
+            datos["email"] = email_limpio
+
         try:
             _db().collection("invitaciones").document(codigo).create(datos)
             break
@@ -467,8 +476,32 @@ def crear_invitacion(taller: str, nota: str = "") -> Dict[str, Any]:
     else:
         raise ErrorAdmin("No se pudo generar un código libre. Intenta de nuevo.")
 
-    _auditar("crear_invitacion", None, None, {"codigo": codigo, "taller": taller})
-    return {**datos, "mensaje": mensaje_invitacion(taller, link, codigo)}
+    _auditar("crear_invitacion", None, None, {"codigo": codigo, "taller": taller, "email": email_limpio})
+
+    correo_enviado = False
+    if email_limpio:
+        try:
+            correo_enviado = bool(brevo.enviar_correo_invitacion(
+                taller=taller,
+                email=email_limpio,
+                codigo=codigo,
+                link_web=link,
+            ))
+            if correo_enviado:
+                try:
+                    _db().collection("invitaciones").document(codigo).update({"correoEnviado": True})
+                except Exception as e_up:
+                    logger.warning("No se pudo actualizar flag correoEnviado en doc %s: %s", codigo, e_up)
+        except Exception as e:
+            logger.error("Error al enviar correo por Brevo a %s (%s): %s", email_limpio, taller, e)
+            correo_enviado = False
+
+    return {
+        **datos,
+        "mensaje": mensaje_invitacion(taller, link, codigo),
+        "correoEnviado": correo_enviado,
+    }
+
 
 
 def listar_invitaciones(maximo: int = 200) -> List[Dict[str, Any]]:

@@ -148,6 +148,8 @@ export interface Invitacion {
   codigo: string;
   taller: string;
   nota?: string;
+  email?: string;
+  correoEnviado?: boolean;
   usado: boolean;
   creadoEn: string;
   creadoPor?: string;
@@ -155,3 +157,4 @@ export interface Invitacion {
   usadoPor?: string;
   usadoEn?: string;
 }
+
