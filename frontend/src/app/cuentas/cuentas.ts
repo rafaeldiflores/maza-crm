@@ -2,80 +2,244 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { FormsModule } from '@angular/forms';
 import { Api, Sesion, mensajeError } from '../core/api';
 import { Cuenta, Invitacion, NOMBRE_PLAN, Taller } from '../core/modelos';
-import { fecha, generarClave } from '../core/utiles';
+import { fecha, generarClave, linkWa, telLink } from '../core/utiles';
 import { Modal } from '../compartido/modal';
+import { WaPipe } from '../compartido/wa.pipe';
 import { FichaCuenta } from './ficha-cuenta';
 import { COLOR_PLAN, textoUso } from './comun';
 
 @Component({
   selector: 'app-cuentas',
-  imports: [FormsModule, Modal, FichaCuenta],
+  imports: [FormsModule, Modal, WaPipe, FichaCuenta],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="tarjeta mb-3 flex flex-wrap items-center justify-between gap-3 p-4">
-      <div><p class="titulo-seccion">Cuentas MAZA</p><h1 class="text-xl font-bold">Talleres y planes</h1></div>
-      <div class="flex gap-2">
-        <button class="btn" (click)="sincronizar()" title="Pasa la etapa del embudo de cada taller vinculado a su plan real">Sincronizar embudo</button>
-        <button class="btn" (click)="abrirCrear()">Crear cuenta</button>
-        <button class="btn-primario btn" (click)="abrirInvitar()" title="Código de un solo uso para que el taller cree su cuenta (talleres fundadores)">Invitar taller</button>
+    <!-- Encabezado en 2 niveles (consistente con Prospectos) -->
+    <section class="tarjeta mb-3 divide-y divide-borde overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 p-3 sm:px-4 sm:py-3.5">
+        <div>
+          <p class="titulo-seccion">Cuentas MAZA</p>
+          <h1 class="text-xl font-bold text-slate-900">Talleres y planes</h1>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="btn font-semibold shadow-xs" (click)="abrirCrear()">
+            <span>＋</span> Crear cuenta
+          </button>
+          <button class="btn-primario btn font-semibold shadow-xs" (click)="abrirInvitar()"
+                  title="Código de un solo uso para que el taller cree su cuenta (talleres fundadores)">
+            <span>🎟️</span> Invitar taller
+            @if (pendientes()) {
+              <span class="ml-0.5 rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {{ pendientes() }}
+              </span>
+            }
+          </button>
+        </div>
+      </div>
+
+      <!-- Barra de herramientas rápidas -->
+      <div class="flex items-center justify-between gap-2 overflow-x-auto bg-slate-50/75 px-3 py-2 text-xs sm:px-4">
+        <div class="flex items-center gap-1.5 flex-nowrap sm:flex-wrap">
+          <span class="mr-1 hidden text-[11px] font-bold uppercase tracking-wider text-slate-400 sm:inline">Acciones:</span>
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  (click)="sincronizar()"
+                  title="Pasa la etapa del embudo de cada taller vinculado a su plan real">
+            <span>🔄</span> Sincronizar embudo
+          </button>
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  [disabled]="cargando()" (click)="cargar()" title="Recargar listado y métricas">
+            <span>↻</span> Actualizar
+          </button>
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-amber-50 hover:!border-amber-300 active:scale-95"
+                  [class.!border-amber-400]="soloFundadores()"
+                  [class.!bg-amber-50]="soloFundadores()"
+                  [class.!text-amber-800]="soloFundadores()"
+                  (click)="soloFundadores.set(!soloFundadores())">
+            <span>★</span> Fundadores
+          </button>
+          <button class="btn !bg-white !text-slate-700 shadow-2xs transition-all hover:!bg-slate-100 active:scale-95"
+                  [class.!border-marca-400]="soloVinculadas()"
+                  [class.!bg-marca-50]="soloVinculadas()"
+                  [class.!text-marca-800]="soloVinculadas()"
+                  (click)="soloVinculadas.set(!soloVinculadas())">
+            <span>🔗</span> Vinculadas al CRM
+          </button>
+        </div>
+
+        @if (marcadas().size) {
+          <div class="flex shrink-0 items-center gap-1.5">
+            <button class="btn !bg-white !text-slate-600" (click)="marcarTodas(false)">Desmarcar</button>
+            <button class="btn-peligro btn shadow-2xs" (click)="abrirConfirmacionEliminar()" [disabled]="eliminandoLote()">
+              Eliminar {{ marcadas().size }} seleccionadas
+            </button>
+          </div>
+        }
       </div>
     </section>
 
+    <!-- KPIs interactivos (clic para filtrar) -->
     @if (m(); as m) {
-      <section class="mb-3 grid grid-cols-2 gap-2 md:grid-cols-5">
-        @for (k of kpis(); track k[0]) { <div class="tarjeta p-3"><p class="text-[11px] font-bold uppercase text-slate-500">{{ k[0] }}</p><p class="text-2xl font-extrabold">{{ k[1] }}</p><p class="text-[11px] text-slate-500">{{ k[2] }}</p></div> }
+      <section class="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+        @for (k of kpis(); track k.id) {
+          <button type="button"
+                  class="tarjeta p-3 text-left transition-all hover:shadow-md"
+                  [class.ring-2]="k.activo"
+                  [class.ring-marca-500]="k.activo"
+                  [class.!bg-marca-50]="k.activo"
+                  (click)="k.accion()">
+            <p class="truncate text-[11px] font-bold uppercase text-slate-500">{{ k.titulo }}</p>
+            <p class="text-2xl font-extrabold" [class]="k.color">{{ k.valor }}</p>
+            <p class="truncate text-[11px] text-slate-500">{{ k.subtitulo }}</p>
+          </button>
+        }
       </section>
     }
 
-    <section class="tarjeta mb-3 flex flex-wrap gap-2 p-3">
-      <input class="campo min-w-[200px] flex-1" placeholder="Buscar por taller, correo o ciudad" [ngModel]="q()" (ngModelChange)="q.set($event)" />
-      <select class="campo !w-auto" [ngModel]="modo()" (ngModelChange)="modo.set($event)">
-        <option value="">Todos los planes</option>
-        @for (k of modos; track k) { <option [value]="k">{{ plan[k] }}</option> }
-      </select>
-      <select class="campo !w-auto" [ngModel]="orden()" (ngModelChange)="orden.set($event)">
-        <option value="creadoEn">Más recientes</option><option value="vence">Vencen antes</option><option value="nombre">Nombre</option>
-      </select>
-      @if (marcadas().size) {
-        <button class="btn-peligro btn" (click)="abrirConfirmacionEliminar()" [disabled]="eliminandoLote()">
-          Eliminar {{ marcadas().size }} seleccionadas
-        </button>
-      }
+    <!-- Barra de filtros y búsqueda -->
+    <section class="tarjeta mb-3 space-y-3 p-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div class="flex gap-1 overflow-x-auto text-xs font-semibold">
+          @for (f of chipsModo; track f.v) {
+            <button type="button"
+                    class="whitespace-nowrap rounded-md px-3 py-1.5 transition-colors"
+                    [class]="modo() === f.v && !soloFundadores() ? 'bg-marca-800 text-white' : 'hover:bg-fondo text-slate-700'"
+                    (click)="seleccionarChipModo(f.v)">
+              {{ f.t }}
+            </button>
+          }
+        </div>
+        <p class="text-[11px] font-semibold text-slate-500">
+          {{ lista().length }} de {{ cuentas().length }} cuentas
+        </p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <input class="campo min-w-[200px] flex-1"
+               placeholder="Buscar por taller, correo, ciudad, teléfono o UID…"
+               [ngModel]="q()" (ngModelChange)="q.set($event)" />
+        <select class="campo !w-auto" [ngModel]="modo()" (ngModelChange)="modo.set($event)">
+          <option value="">Todos los planes</option>
+          <option value="pagando">💳 Todos los pagados</option>
+          @for (k of modos; track k) { <option [value]="k">{{ plan[k] }}</option> }
+        </select>
+        <select class="campo !w-auto" [ngModel]="orden()" (ngModelChange)="orden.set($event)">
+          <option value="creadoEn">Más recientes</option>
+          <option value="vence">Vencen antes</option>
+          <option value="uso">Mayor avance en prueba</option>
+          <option value="nombre">Nombre A-Z</option>
+        </select>
+        @if (hayFiltros()) {
+          <button class="btn !text-red-700" (click)="limpiarFiltros()">Limpiar</button>
+        }
+      </div>
     </section>
 
-    <div class="tarjeta overflow-x-auto">
+    <!-- Tabla en escritorio -->
+    <div class="tarjeta hidden overflow-x-auto md:block">
       <table class="w-full text-sm">
         <thead class="bg-fondo text-left text-[11px] uppercase text-slate-500">
-          <tr><th class="w-8 px-3 py-2"><input type="checkbox" [checked]="marcadas().size && marcadas().size === lista().length" (change)="marcarTodas($any($event.target).checked)" /></th><th class="px-3 py-2">Taller</th><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Vence / uso</th><th class="hidden px-3 py-2 md:table-cell">CRM</th><th class="hidden px-3 py-2 md:table-cell">Alta</th></tr>
+          <tr>
+            <th class="w-8 px-3 py-2.5">
+              <input type="checkbox"
+                     [checked]="lista().length > 0 && marcadas().size === lista().length"
+                     (change)="marcarTodas($any($event.target).checked)" />
+            </th>
+            <th class="px-3 py-2.5">Taller y contacto</th>
+            <th class="px-3 py-2.5">Plan</th>
+            <th class="px-3 py-2.5">Vigencia / uso</th>
+            <th class="px-3 py-2.5">Vínculo CRM</th>
+            <th class="px-3 py-2.5">Alta</th>
+            <th class="px-3 py-2.5 text-right">Acciones</th>
+          </tr>
         </thead>
         <tbody>
           @if (cargando()) {
             @for (i of [1, 2, 3, 4, 5]; track i) {
               <tr class="animate-pulse border-t border-borde">
                 <td class="px-3 py-3"><div class="h-4 w-4 rounded bg-slate-200"></div></td>
-                <td class="px-3 py-3 space-y-1"><div class="h-4 w-32 rounded bg-slate-200"></div><div class="h-3 w-24 rounded bg-slate-100"></div></td>
-                <td class="px-3 py-3"><div class="h-5 w-16 rounded-full bg-slate-200"></div></td>
-                <td class="px-3 py-3"><div class="h-3 w-24 rounded bg-slate-100"></div></td>
-                <td class="hidden px-3 py-3 md:table-cell"><div class="h-3 w-16 rounded bg-slate-100"></div></td>
-                <td class="hidden px-3 py-3 md:table-cell"><div class="h-3 w-16 rounded bg-slate-100"></div></td>
+                <td class="px-3 py-3 space-y-1.5"><div class="h-4 w-36 rounded bg-slate-200"></div><div class="h-3 w-48 rounded bg-slate-100"></div></td>
+                <td class="px-3 py-3"><div class="h-5 w-20 rounded-full bg-slate-200"></div></td>
+                <td class="px-3 py-3 space-y-1"><div class="h-3 w-28 rounded bg-slate-200"></div><div class="h-1.5 w-24 rounded bg-slate-100"></div></td>
+                <td class="px-3 py-3"><div class="h-4 w-24 rounded bg-slate-100"></div></td>
+                <td class="px-3 py-3"><div class="h-3 w-16 rounded bg-slate-100"></div></td>
+                <td class="px-3 py-3 text-right"><div class="ml-auto h-7 w-24 rounded bg-slate-200"></div></td>
               </tr>
             }
           } @else {
             @for (c of lista(); track c.uid) {
-              <tr class="cursor-pointer border-t border-borde hover:bg-marca-50" (click)="abierta.set(c.uid)">
-                <td class="px-3 py-2" (click)="$event.stopPropagation()"><input type="checkbox" [checked]="marcadas().has(c.uid)" (change)="marcar(c.uid)" /></td>
-                <td class="px-3 py-2"><p class="font-bold">{{ c.nombreTaller || '(sin nombre)' }} @if (c.esFundador) { <span class="text-[10px] text-amber-700">★ {{ c.numeroFundador }}</span> }</p><p class="text-xs text-slate-500">{{ c.email }}</p></td>
-                <td class="px-3 py-2"><span class="insignia" [class]="colorPlan[c.modo]">{{ plan[c.modo] }}</span></td>
-                <td class="px-3 py-2 text-xs">{{ uso(c) }}</td>
-                <td class="hidden px-3 py-2 text-xs md:table-cell">{{ c.crm?.nombre || '—' }}</td>
-                <td class="hidden px-3 py-2 text-xs text-slate-500 md:table-cell">{{ f(c.creadoEn) }}</td>
+              <tr class="cursor-pointer border-t border-borde transition-colors hover:bg-marca-50/70" (click)="abierta.set(c.uid)">
+                <td class="px-3 py-2.5" (click)="$event.stopPropagation()">
+                  <input type="checkbox" [checked]="marcadas().has(c.uid)" (change)="marcar(c.uid)" />
+                </td>
+                <td class="px-3 py-2.5">
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <span class="font-bold text-slate-900">{{ c.nombreTaller || '(sin nombre)' }}</span>
+                    @if (c.esFundador) {
+                      <span class="insignia border-amber-300 bg-amber-50 text-amber-800" title="Taller fundador">
+                        ★ #{{ c.numeroFundador || '?' }}
+                      </span>
+                    }
+                    @if (c.mpConnectHabilitado) {
+                      <span class="insignia border-sky-200 bg-sky-50 text-sky-700" title="Cobro online con Mercado Pago Connect habilitado">
+                        MP
+                      </span>
+                    }
+                  </div>
+                  <div class="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                    <span>{{ c.email }}</span>
+                    @if (c.ciudad || c.tipoTaller) {
+                      <span>· {{ [c.tipoTaller, c.ciudad].filter(ok).join(' · ') }}</span>
+                    }
+                    @if (c.telefono) {
+                      <span>· 📞 {{ c.telefono }}</span>
+                    }
+                  </div>
+                </td>
+                <td class="px-3 py-2.5">
+                  <span class="insignia" [class]="colorPlan[c.modo]">{{ plan[c.modo] }}</span>
+                </td>
+                <td class="px-3 py-2.5 text-xs">
+                  <p class="font-medium text-slate-700">{{ uso(c) }}</p>
+                  @if (c.modo === 'trial' || c.modo === 'trial_expirado') {
+                    <div class="mt-1 h-1.5 w-28 overflow-hidden rounded-full bg-slate-200">
+                      <div class="h-full rounded-full transition-all"
+                           [class]="c.modo === 'trial_expirado' ? 'bg-red-500' : pctPrueba(c) >= 80 ? 'bg-amber-500' : 'bg-sky-500'"
+                           [style.width.%]="pctPrueba(c)"></div>
+                    </div>
+                  }
+                </td>
+                <td class="px-3 py-2.5 text-xs">
+                  @if (c.crm; as crm) {
+                    <span class="insignia border-slate-200 bg-slate-50 font-medium text-slate-700">🔗 {{ crm.nombre }}</span>
+                  } @else {
+                    <span class="text-slate-400">—</span>
+                  }
+                </td>
+                <td class="whitespace-nowrap px-3 py-2.5 text-xs text-slate-500">{{ f(c.creadoEn) }}</td>
+                <td class="px-3 py-2.5 text-right" (click)="$event.stopPropagation()">
+                  <div class="inline-flex items-center justify-end gap-1">
+                    @if (waFila(c); as w) {
+                      <a class="btn-wa btn !px-2 !py-1 text-[11px]" target="_blank" rel="noopener" [href]="w | wa" title="Escribir por WhatsApp">
+                        WhatsApp
+                      </a>
+                    }
+                    <button class="btn !px-2 !py-1 text-[11px]" (click)="copiar(c.email, 'Correo copiado')" title="Copiar correo">
+                      📋
+                    </button>
+                    <button class="btn-primario btn !px-2.5 !py-1 text-[11px]" (click)="abierta.set(c.uid)">
+                      Ficha
+                    </button>
+                  </div>
+                </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="6" class="px-3 py-10 text-center">
-                  <div class="space-y-1">
-                    <p class="font-bold text-slate-700">Sin resultados</p>
-                    <p class="text-xs text-slate-500">No encontramos cuentas con estos criterios de búsqueda o plan.</p>
+                <td colspan="7" class="px-3 py-10 text-center">
+                  <div class="space-y-2">
+                    <p class="font-bold text-slate-700">No hay cuentas con estos filtros</p>
+                    <p class="text-xs text-slate-500">Prueba ajustando la búsqueda o el filtro de plan.</p>
+                    @if (hayFiltros()) {
+                      <button class="btn mt-1" (click)="limpiarFiltros()">Limpiar filtros</button>
+                    }
                   </div>
                 </td>
               </tr>
@@ -83,6 +247,71 @@ import { COLOR_PLAN, textoUso } from './comun';
           }
         </tbody>
       </table>
+    </div>
+
+    <!-- Tarjetas responsivas en móvil -->
+    <div class="space-y-2 md:hidden">
+      @if (cargando()) {
+        @for (i of [1, 2, 3, 4]; track i) {
+          <div class="tarjeta animate-pulse space-y-2.5 p-3">
+            <div class="flex justify-between">
+              <div class="h-4 w-36 rounded bg-slate-200"></div>
+              <div class="h-5 w-20 rounded-full bg-slate-200"></div>
+            </div>
+            <div class="h-3 w-48 rounded bg-slate-100"></div>
+            <div class="h-3 w-32 rounded bg-slate-100"></div>
+          </div>
+        }
+      } @else {
+        @for (c of lista(); track c.uid) {
+          <article class="tarjeta space-y-2.5 p-3" (click)="abierta.set(c.uid)">
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex items-start gap-2 min-w-0">
+                <input type="checkbox" class="mt-1" [checked]="marcadas().has(c.uid)"
+                       (click)="$event.stopPropagation()" (change)="marcar(c.uid)" />
+                <div class="min-w-0">
+                  <div class="flex flex-wrap items-center gap-1">
+                    <p class="font-bold text-slate-900 truncate">{{ c.nombreTaller || '(sin nombre)' }}</p>
+                    @if (c.esFundador) {
+                      <span class="insignia border-amber-300 bg-amber-50 text-amber-800">★ #{{ c.numeroFundador || '?' }}</span>
+                    }
+                  </div>
+                  <p class="text-xs text-slate-500 truncate">{{ c.email }}</p>
+                </div>
+              </div>
+              <span class="insignia shrink-0" [class]="colorPlan[c.modo]">{{ plan[c.modo] }}</span>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+              <span>{{ uso(c) }}</span>
+              @if (c.crm; as crm) {
+                <span class="insignia border-slate-200 bg-slate-50 text-slate-700">🔗 {{ crm.nombre }}</span>
+              }
+            </div>
+
+            <div class="flex items-center justify-between gap-1.5 border-t border-borde pt-2" (click)="$event.stopPropagation()">
+              <div class="flex items-center gap-1.5">
+                @if (waFila(c); as w) {
+                  <a class="btn-wa btn !px-2.5 !py-1 text-xs" target="_blank" rel="noopener" [href]="w | wa">WhatsApp</a>
+                }
+                @if (tel(c); as telUrl) {
+                  <a class="btn !px-2 !py-1 text-xs" [href]="telUrl" title="Llamar">📞</a>
+                }
+                <button class="btn !px-2 !py-1 text-xs" (click)="copiar(c.email, 'Correo copiado')" title="Copiar correo">📋</button>
+              </div>
+              <button class="btn-primario btn !px-3 !py-1 text-xs" (click)="abierta.set(c.uid)">Abrir ficha</button>
+            </div>
+          </article>
+        } @empty {
+          <div class="tarjeta p-8 text-center space-y-2">
+            <p class="font-bold text-slate-700">Sin resultados</p>
+            <p class="text-xs text-slate-500">No encontramos cuentas con estos criterios.</p>
+            @if (hayFiltros()) {
+              <button class="btn mt-1" (click)="limpiarFiltros()">Limpiar filtros</button>
+            }
+          </div>
+        }
+      }
     </div>
 
     @if (abierta(); as uid) { <app-ficha-cuenta [uid]="uid" (cerrar)="abierta.set(null); cargar()" /> }
@@ -222,11 +451,23 @@ export class Cuentas implements OnInit {
   readonly plan = NOMBRE_PLAN;
   readonly colorPlan = COLOR_PLAN;
   readonly modos = ['trial', 'trial_expirado', 'pro', 'ilimitado', 'empresa', 'basico'];
+  readonly chipsModo = [
+    { v: '', t: 'Todas' },
+    { v: 'pagando', t: '💳 Pagando' },
+    { v: 'trial', t: '🚀 En prueba' },
+    { v: 'trial_expirado', t: '⚠️ Prueba vencida' },
+    { v: 'pro', t: '🛠️ Taller Solo' },
+    { v: 'ilimitado', t: '⚡ Taller Pro' },
+    { v: 'empresa', t: '🏢 Empresa' },
+  ];
+
   cuentas = signal<Cuenta[]>([]);
   m = signal<any>(null);
   cargando = signal(true);
   q = signal('');
   modo = signal('');
+  soloFundadores = signal(false);
+  soloVinculadas = signal(false);
   orden = signal('creadoEn');
   abierta = signal<string | null>(null);
   creando = signal(false);
@@ -238,6 +479,7 @@ export class Cuentas implements OnInit {
   eliminandoLote = signal(false);
   progresoEliminacion = signal<{ actual: number; total: number; correo: string } | null>(null);
   uso = textoUso; f = fecha; generar = generarClave;
+  ok = (x: unknown) => !!x;
 
   // Invitaciones (talleres fundadores)
   invitando = signal(false);
@@ -252,20 +494,103 @@ export class Cuentas implements OnInit {
   fraseConfirmacion = computed(() => `ELIMINAR ${this.cuentasSeleccionadas().length}`);
   puedeConfirmarEliminar = computed(() => this.textoConfirmacionLote().trim().toUpperCase() === this.fraseConfirmacion().toUpperCase());
 
+  hayFiltros = computed(() => !!this.q().trim() || !!this.modo() || this.soloFundadores() || this.soloVinculadas());
+
   kpis = computed(() => {
-    const m = this.m(); const p = m.porModo || {};
-    return [['Talleres', m.talleres, `${m.miembros} de equipo`], ['Pagando', m.pagando, `Solo ${p.pro || 0} · Pro ${p.ilimitado || 0} · Emp. ${p.empresa || 0}`],
-      ['En prueba', p.trial || 0, ''], ['Prueba vencida', p.trial_expirado || 0, 'para recuperar'], ['Fundadores', m.fundadores, 'de 20']];
+    const m = this.m();
+    const p = m?.porModo || {};
+    return [
+      {
+        id: 'todos',
+        titulo: 'Talleres',
+        valor: m.talleres,
+        subtitulo: `${m.miembros} de equipo`,
+        color: 'text-slate-900',
+        activo: this.modo() === '' && !this.soloFundadores(),
+        accion: () => { this.modo.set(''); this.soloFundadores.set(false); },
+      },
+      {
+        id: 'pagando',
+        titulo: 'Pagando',
+        valor: m.pagando,
+        subtitulo: `Solo ${p.pro || 0} · Pro ${p.ilimitado || 0} · Emp. ${p.empresa || 0}`,
+        color: 'text-emerald-700',
+        activo: this.modo() === 'pagando',
+        accion: () => { this.soloFundadores.set(false); this.modo.set(this.modo() === 'pagando' ? '' : 'pagando'); },
+      },
+      {
+        id: 'trial',
+        titulo: 'En prueba',
+        valor: p.trial || 0,
+        subtitulo: '14 días / 30 órdenes',
+        color: 'text-sky-700',
+        activo: this.modo() === 'trial',
+        accion: () => { this.soloFundadores.set(false); this.modo.set(this.modo() === 'trial' ? '' : 'trial'); },
+      },
+      {
+        id: 'vencida',
+        titulo: 'Prueba vencida',
+        valor: p.trial_expirado || 0,
+        subtitulo: 'para recuperar',
+        color: 'text-red-700',
+        activo: this.modo() === 'trial_expirado',
+        accion: () => { this.soloFundadores.set(false); this.modo.set(this.modo() === 'trial_expirado' ? '' : 'trial_expirado'); },
+      },
+      {
+        id: 'fundadores',
+        titulo: 'Fundadores',
+        valor: m.fundadores,
+        subtitulo: 'de 20 cupos',
+        color: 'text-amber-700',
+        activo: this.soloFundadores(),
+        accion: () => this.soloFundadores.set(!this.soloFundadores()),
+      },
+    ];
   });
 
   lista = computed(() => {
     const q = this.q().trim().toLowerCase();
-    const l = this.cuentas().filter((c) => (!this.modo() || c.modo === this.modo()) &&
-      (!q || [c.nombreTaller, c.email, c.ciudad].some((v) => (v || '').toLowerCase().includes(q))));
+    const modo = this.modo();
+    const fund = this.soloFundadores();
+    const vinc = this.soloVinculadas();
+
+    const l = this.cuentas().filter((c) => {
+      if (modo === 'pagando' && !['pro', 'ilimitado', 'empresa'].includes(c.modo)) return false;
+      if (modo && modo !== 'pagando' && c.modo !== modo) return false;
+      if (fund && !c.esFundador) return false;
+      if (vinc && !c.crm) return false;
+      if (q && ![c.nombreTaller, c.email, c.ciudad, c.telefono, c.uid, c.crm?.nombre].some((v) => (v || '').toLowerCase().includes(q))) {
+        return false;
+      }
+      return true;
+    });
+
     if (this.orden() === 'nombre') l.sort((a, b) => (a.nombreTaller || a.email).localeCompare(b.nombreTaller || b.email));
     if (this.orden() === 'vence') l.sort((a, b) => (a.planVigenteHasta || '9999').localeCompare(b.planVigenteHasta || '9999'));
+    if (this.orden() === 'uso') l.sort((a, b) => (b.trialOrdenes * 2 + b.trialDiasUsados) - (a.trialOrdenes * 2 + a.trialDiasUsados));
     return l;
   });
+
+  seleccionarChipModo(v: string) {
+    this.soloFundadores.set(false);
+    this.modo.set(v);
+  }
+
+  limpiarFiltros() {
+    this.q.set('');
+    this.modo.set('');
+    this.soloFundadores.set(false);
+    this.soloVinculadas.set(false);
+  }
+
+  pctPrueba(c: Cuenta): number {
+    const pctDias = Math.min(100, Math.round(((c.trialDiasUsados || 0) / 14) * 100));
+    const pctOrd = Math.min(100, Math.round(((c.trialOrdenes || 0) / 30) * 100));
+    return Math.max(pctDias, pctOrd);
+  }
+
+  waFila = (c: Cuenta) => linkWa(c.telefono, `Hola${c.nombreTaller ? ' ' + c.nombreTaller : ''}, te escribo de MAZA.`);
+  tel = (c: Cuenta) => telLink(c.telefono);
 
   async ngOnInit() { await this.cargar(); }
   async cargar() {

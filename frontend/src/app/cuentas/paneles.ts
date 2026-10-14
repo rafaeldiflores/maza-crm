@@ -11,27 +11,75 @@ import { waCuenta } from './comun';
 
 @Component({
   selector: 'app-cobros',
-  imports: [FichaCuenta, WaPipe],
+  imports: [FormsModule, FichaCuenta, WaPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Cobros</p><h1 class="text-xl font-bold">Pagos y renovaciones</h1></section>
-    <p class="titulo-seccion mb-2">Vencen en 7 días</p>
+    <section class="tarjeta mb-3 flex flex-wrap items-center justify-between gap-3 p-4">
+      <div><p class="titulo-seccion">Cobros</p><h1 class="text-xl font-bold text-slate-900">Pagos y renovaciones</h1></div>
+      <button class="btn" [disabled]="cargando()" (click)="ngOnInit()">↻ Actualizar</button>
+    </section>
+
+    <section class="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div class="tarjeta p-3">
+        <p class="text-[11px] font-bold uppercase text-slate-500">Vencen en 7 días</p>
+        <p class="text-2xl font-extrabold text-amber-700">{{ renovar().length }}</p>
+      </div>
+      <div class="tarjeta p-3">
+        <p class="text-[11px] font-bold uppercase text-slate-500">Pagos registrados</p>
+        <p class="text-2xl font-extrabold text-slate-900">{{ pagosFiltrados().length }}</p>
+      </div>
+      <div class="tarjeta p-3">
+        <p class="text-[11px] font-bold uppercase text-slate-500">Total recaudado (vista)</p>
+        <p class="text-2xl font-extrabold text-emerald-700">{{ p(totalRecaudado()) }}</p>
+      </div>
+    </section>
+
+    <p class="titulo-seccion mb-2">Vencen en 7 días ({{ renovar().length }})</p>
     <div class="mb-5 space-y-2">
-      @for (c of renovar(); track c.uid) {
-        <article class="tarjeta flex items-center justify-between gap-2 border-l-4 !border-l-amber-400 p-3">
-          <button class="text-left" (click)="abierta.set(c.uid)"><p class="font-bold">{{ c.nombreTaller || c.email }}</p><p class="text-xs text-slate-500">{{ plan[c.modo] }} · {{ c.motivo }}</p></button>
-          @if (wa(c); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">WhatsApp</a> }
-        </article>
-      } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Nada por vencer.</p> }
+      @if (cargando()) {
+        <div class="tarjeta animate-pulse p-4"><div class="h-4 w-48 rounded bg-slate-200"></div></div>
+      } @else {
+        @for (c of renovar(); track c.uid) {
+          <article class="tarjeta flex flex-wrap items-center justify-between gap-2 border-l-4 !border-l-amber-400 p-3">
+            <button class="text-left" (click)="abierta.set(c.uid)">
+              <p class="font-bold text-slate-900 hover:text-marca-500">{{ c.nombreTaller || c.email }}</p>
+              <p class="text-xs text-slate-500">{{ plan[c.modo] }} · {{ c.motivo }}</p>
+            </button>
+            <div class="flex items-center gap-1.5">
+              @if (wa(c); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">WhatsApp</a> }
+              <button class="btn-primario btn" (click)="abierta.set(c.uid)">Ficha</button>
+            </div>
+          </article>
+        } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Nada por vencer en los próximos 7 días.</p> }
+      }
     </div>
-    <p class="titulo-seccion mb-2">Pagos</p>
+
+    <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <p class="titulo-seccion">Historial de pagos</p>
+      <input class="campo !w-64 !py-1.5 text-xs" placeholder="Filtrar por taller, plan o medio…" [ngModel]="q()" (ngModelChange)="q.set($event)" />
+    </div>
     <div class="tarjeta overflow-x-auto">
       <table class="w-full text-xs">
-        <thead class="bg-fondo text-left uppercase text-slate-500"><tr><th class="px-3 py-2">Fecha</th><th class="px-3 py-2">Taller</th><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Meses</th><th class="px-3 py-2">Medio</th><th class="px-3 py-2 text-right">Monto</th></tr></thead>
+        <thead class="bg-fondo text-left uppercase text-slate-500">
+          <tr><th class="px-3 py-2.5">Fecha</th><th class="px-3 py-2.5">Taller</th><th class="px-3 py-2.5">Plan</th><th class="px-3 py-2.5">Meses</th><th class="px-3 py-2.5">Medio</th><th class="px-3 py-2.5 text-right">Monto</th></tr>
+        </thead>
         <tbody>
-          @for (x of pagos(); track x.id) {
-            <tr class="border-t border-borde"><td class="px-3 py-2">{{ f(x.fecha) }}</td><td class="px-3 py-2">{{ quien(x.uid) }}</td><td class="px-3 py-2">{{ plan[x.plan] || x.plan }}</td><td class="px-3 py-2">{{ x.meses }}</td><td class="px-3 py-2">{{ x.medio }}</td><td class="px-3 py-2 text-right font-bold">{{ p(x.monto) }}</td></tr>
-          } @empty { <tr><td colspan="6" class="px-3 py-8 text-center text-slate-500">Sin pagos.</td></tr> }
+          @if (cargando()) {
+            @for (i of [1, 2, 3]; track i) {
+              <tr class="animate-pulse border-t border-borde"><td colspan="6" class="px-3 py-3"><div class="h-4 w-full rounded bg-slate-100"></div></td></tr>
+            }
+          } @else {
+            @for (x of pagosFiltrados(); track x.id) {
+              <tr class="border-t border-borde hover:bg-marca-50/50 cursor-pointer" (click)="abierta.set(x.uid)">
+                <td class="px-3 py-2.5 whitespace-nowrap">{{ f(x.fecha) }}</td>
+                <td class="px-3 py-2.5 font-semibold text-slate-800">{{ quien(x.uid) }}</td>
+                <td class="px-3 py-2.5">{{ plan[x.plan] || x.plan }}</td>
+                <td class="px-3 py-2.5">{{ x.meses }}</td>
+                <td class="px-3 py-2.5">{{ x.medio }}</td>
+                <td class="px-3 py-2.5 text-right font-bold text-emerald-700">{{ p(x.monto) }}</td>
+              </tr>
+            } @empty { <tr><td colspan="6" class="px-3 py-8 text-center text-slate-500">Sin pagos registrados.</td></tr> }
+          }
         </tbody>
       </table>
     </div>
@@ -43,12 +91,25 @@ export class Cobros implements OnInit {
   readonly plan = NOMBRE_PLAN;
   pagos = signal<any[]>([]);
   salud = signal<CuentaSalud[]>([]);
+  cargando = signal(true);
+  q = signal('');
   abierta = signal<string | null>(null);
   renovar = computed(() => this.salud().filter((c) => c.salud === 'renovar'));
+  pagosFiltrados = computed(() => {
+    const q = this.q().trim().toLowerCase();
+    if (!q) return this.pagos();
+    return this.pagos().filter((x) =>
+      [this.quien(x.uid), this.plan[x.plan] || x.plan, x.medio, x.nota].some((v) => String(v || '').toLowerCase().includes(q)),
+    );
+  });
+  totalRecaudado = computed(() => this.pagosFiltrados().reduce((acc, x) => acc + Number(x.monto || 0), 0));
   f = fecha; p = plata;
   async ngOnInit() {
-    const [p, s] = await Promise.all([this.api.pagos(), this.api.saludCuentas()]);
-    this.pagos.set(p); this.salud.set(s);
+    this.cargando.set(true);
+    try {
+      const [p, s] = await Promise.all([this.api.pagos(), this.api.saludCuentas()]);
+      this.pagos.set(p); this.salud.set(s);
+    } finally { this.cargando.set(false); }
   }
   quien = (uid: string) => { const c = this.salud().find((x) => x.uid === uid); return c ? c.nombreTaller || c.email : uid; };
   wa = (c: CuentaSalud) => waCuenta(c, 'renovar');
@@ -97,22 +158,56 @@ export class Metricas implements OnInit {
   imports: [FormsModule, WaPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Soporte</p><h1 class="text-xl font-bold">Tickets de los talleres</h1></section>
+    <section class="tarjeta mb-3 divide-y divide-borde overflow-hidden">
+      <div class="flex flex-wrap items-center justify-between gap-3 p-3 sm:px-4 sm:py-3.5">
+        <div><p class="titulo-seccion">Soporte</p><h1 class="text-xl font-bold text-slate-900">Tickets de los talleres</h1></div>
+        <button class="btn" [disabled]="cargando()" (click)="ngOnInit()">↻ Actualizar</button>
+      </div>
+      <div class="flex items-center gap-1.5 bg-slate-50/75 px-3 py-2 text-xs font-semibold sm:px-4">
+        <button class="rounded-md px-3 py-1.5" [class]="filtro() === 'abierto' ? 'bg-marca-800 text-white' : 'hover:bg-fondo text-slate-700'" (click)="filtro.set('abierto')">
+          Abiertos ({{ abiertos() }})
+        </button>
+        <button class="rounded-md px-3 py-1.5" [class]="filtro() === 'resuelto' ? 'bg-marca-800 text-white' : 'hover:bg-fondo text-slate-700'" (click)="filtro.set('resuelto')">
+          Resueltos ({{ tickets().length - abiertos() }})
+        </button>
+        <button class="rounded-md px-3 py-1.5" [class]="filtro() === 'todos' ? 'bg-marca-800 text-white' : 'hover:bg-fondo text-slate-700'" (click)="filtro.set('todos')">
+          Todos ({{ tickets().length }})
+        </button>
+      </div>
+    </section>
+
     <div class="space-y-2">
-      @for (x of tickets(); track x.id) {
-        <article class="tarjeta space-y-2 p-3" [class.!border-l-4]="x.estado === 'abierto'" [class.!border-l-amber-400]="x.estado === 'abierto'">
-          <div class="flex justify-between gap-2"><p class="font-bold">{{ x.asunto }}</p><span class="text-xs text-slate-500">{{ fh(x.fecha) }}</span></div>
-          <p class="text-xs text-slate-500">{{ x.nombreTaller }} · {{ x.email }}</p>
-          <p class="whitespace-pre-wrap text-sm">{{ x.descripcion }}</p>
-          @if (x.estado === 'abierto') {
-            <textarea rows="2" class="campo" placeholder="Respuesta (opcional, la ve el taller)" [(ngModel)]="respuestas[x.id]"></textarea>
-            <button class="btn-primario btn" (click)="resolver(x)">Marcar resuelto</button>
-          } @else {
-            <p class="text-xs text-emerald-700">Resuelto{{ x.respuesta ? ': ' + x.respuesta : '' }}</p>
-            @if (wa(x); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">Avisar por WhatsApp</a> }
-          }
-        </article>
-      } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Sin tickets.</p> }
+      @if (cargando()) {
+        @for (i of [1, 2, 3]; track i) {
+          <div class="tarjeta animate-pulse p-4 space-y-2"><div class="h-4 w-48 rounded bg-slate-200"></div><div class="h-3 w-full rounded bg-slate-100"></div></div>
+        }
+      } @else {
+        @for (x of lista(); track x.id) {
+          <article class="tarjeta space-y-2 p-3.5" [class.!border-l-4]="x.estado === 'abierto'" [class.!border-l-amber-400]="x.estado === 'abierto'">
+            <div class="flex justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="insignia" [class]="x.estado === 'abierto' ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-700'">
+                  {{ x.estado === 'abierto' ? 'Abierto' : 'Resuelto' }}
+                </span>
+                <p class="font-bold text-slate-900">{{ x.asunto }}</p>
+              </div>
+              <span class="text-xs text-slate-500">{{ fh(x.fecha) }}</span>
+            </div>
+            <p class="text-xs text-slate-500">{{ x.nombreTaller }} · {{ x.email }}</p>
+            <p class="whitespace-pre-wrap text-sm text-slate-800">{{ x.descripcion }}</p>
+            @if (x.estado === 'abierto') {
+              <textarea rows="2" class="campo" placeholder="Respuesta (opcional, la ve el taller)" [(ngModel)]="respuestas[x.id]"></textarea>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn-primario btn" (click)="resolver(x)">✓ Marcar resuelto</button>
+                @if (wa(x); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">💬 Consultar por WhatsApp</a> }
+              </div>
+            } @else {
+              <p class="text-xs font-medium text-emerald-700">Resuelto{{ x.respuesta ? ': ' + x.respuesta : '' }}</p>
+              @if (wa(x); as w) { <a class="btn-wa btn" target="_blank" rel="noopener" [href]="w | wa">Avisar por WhatsApp</a> }
+            }
+          </article>
+        } @empty { <p class="tarjeta p-6 text-center text-sm text-slate-500">Sin tickets en esta vista.</p> }
+      }
     </div>
   `,
 })
@@ -120,13 +215,20 @@ export class Soporte implements OnInit {
   private api = inject(Api);
   private sesion = inject(Sesion);
   tickets = signal<any[]>([]);
+  cargando = signal(true);
+  filtro = signal<'abierto' | 'resuelto' | 'todos'>('abierto');
+  abiertos = computed(() => this.tickets().filter((x) => x.estado === 'abierto').length);
+  lista = computed(() => this.filtro() === 'todos' ? this.tickets() : this.tickets().filter((x) => x.estado === this.filtro()));
   telefonos = new Map<string, string>();
   respuestas: Record<string, string> = {};
   fh = fechaHora;
   async ngOnInit() {
-    const [t, c] = await Promise.all([this.api.tickets(), this.api.cuentas()]);
-    c.cuentas.forEach((x) => this.telefonos.set(x.uid, x.telefono));
-    this.tickets.set(t);
+    this.cargando.set(true);
+    try {
+      const [t, c] = await Promise.all([this.api.tickets(), this.api.cuentas()]);
+      c.cuentas.forEach((x) => this.telefonos.set(x.uid, x.telefono));
+      this.tickets.set(t);
+    } finally { this.cargando.set(false); }
   }
   wa = (x: any) => linkWa(this.telefonos.get(x.uid), `Hola, te escribo de MAZA por tu reporte «${x.asunto}»: ${x.respuesta || 'ya quedó resuelto'}.`);
   async resolver(x: any) {
@@ -137,43 +239,88 @@ export class Soporte implements OnInit {
 
 @Component({
   selector: 'app-errores',
+  imports: [FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Errores</p><h1 class="text-xl font-bold">Lo que reporta la app</h1></section>
+    <section class="tarjeta mb-3 flex flex-wrap items-center justify-between gap-3 p-4">
+      <div><p class="titulo-seccion">Errores</p><h1 class="text-xl font-bold text-slate-900">Lo que reporta la app ({{ filtrados().length }})</h1></div>
+      <div class="flex gap-2">
+        <input class="campo !w-56 !py-1.5 text-xs" placeholder="Buscar por mensaje o taller…" [ngModel]="q()" (ngModelChange)="q.set($event)" />
+        <button class="btn" [disabled]="cargando()" (click)="ngOnInit()">↻ Actualizar</button>
+      </div>
+    </section>
     <div class="space-y-2">
-      @for (x of errores(); track x.id) {
-        <details class="tarjeta p-3">
-          <summary class="cursor-pointer text-sm"><b>{{ x.mensaje }}</b><span class="block text-xs text-slate-500">{{ fh(x.fecha) }} · {{ x.nombreTaller || x.email || 'anónimo' }} · {{ x.ruta }} · v{{ x.appVersion }}</span></summary>
-          <pre class="mt-2 overflow-x-auto font-mono text-[11px] text-slate-600">{{ x.stack }}</pre>
-          <button class="btn mt-2" (click)="borrar(x.id)">Marcar visto (borrar)</button>
-        </details>
-      } @empty { <p class="tarjeta p-4 text-sm text-slate-500">Sin errores registrados.</p> }
+      @if (cargando()) {
+        @for (i of [1, 2, 3]; track i) {
+          <div class="tarjeta animate-pulse p-3.5 space-y-1.5"><div class="h-4 w-64 rounded bg-slate-200"></div><div class="h-3 w-40 rounded bg-slate-100"></div></div>
+        }
+      } @else {
+        @for (x of filtrados(); track x.id) {
+          <details class="tarjeta p-3">
+            <summary class="cursor-pointer text-sm">
+              <b>{{ x.mensaje }}</b>
+              <span class="block text-xs text-slate-500">{{ fh(x.fecha) }} · {{ x.nombreTaller || x.email || 'anónimo' }} · {{ x.ruta }} · v{{ x.appVersion }}</span>
+            </summary>
+            <pre class="mt-2 overflow-x-auto rounded bg-slate-900 p-2.5 font-mono text-[11px] text-slate-100">{{ x.stack }}</pre>
+            <button class="btn-peligro btn mt-2" (click)="borrar(x.id)">Marcar visto (borrar)</button>
+          </details>
+        } @empty { <p class="tarjeta p-6 text-center text-sm text-slate-500">Sin errores registrados.</p> }
+      }
     </div>
   `,
 })
 export class Errores implements OnInit {
   private api = inject(Api);
   errores = signal<any[]>([]);
+  cargando = signal(true);
+  q = signal('');
+  filtrados = computed(() => {
+    const q = this.q().trim().toLowerCase();
+    if (!q) return this.errores();
+    return this.errores().filter((x) => [x.mensaje, x.nombreTaller, x.email, x.ruta].some((v) => String(v || '').toLowerCase().includes(q)));
+  });
   fh = fechaHora;
-  async ngOnInit() { this.errores.set(await this.api.errores()); }
+  async ngOnInit() {
+    this.cargando.set(true);
+    try { this.errores.set(await this.api.errores()); }
+    finally { this.cargando.set(false); }
+  }
   async borrar(id: string) { await this.api.borrarError(id); this.errores.update((l) => l.filter((x) => x.id !== id)); }
 }
 
 @Component({
   selector: 'app-auditoria',
+  imports: [FormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <section class="tarjeta mb-3 p-4"><p class="titulo-seccion">Auditoría</p><h1 class="text-xl font-bold">Cambios en cuentas</h1></section>
+    <section class="tarjeta mb-3 flex flex-wrap items-center justify-between gap-3 p-4">
+      <div><p class="titulo-seccion">Auditoría</p><h1 class="text-xl font-bold text-slate-900">Cambios en cuentas</h1></div>
+      <div class="flex gap-2">
+        <input class="campo !w-60 !py-1.5 text-xs" placeholder="Filtrar por cuenta, acción o autor…" [ngModel]="q()" (ngModelChange)="q.set($event)" />
+        <button class="btn" [disabled]="cargando()" (click)="ngOnInit()">↻ Actualizar</button>
+      </div>
+    </section>
     <div class="tarjeta overflow-x-auto">
       <table class="w-full text-xs">
-        <thead class="bg-fondo text-left uppercase text-slate-500"><tr><th class="px-3 py-2">Fecha</th><th class="px-3 py-2">Acción</th><th class="px-3 py-2">Cuenta</th><th class="px-3 py-2">Cambio</th><th class="px-3 py-2">Quién</th></tr></thead>
+        <thead class="bg-fondo text-left uppercase text-slate-500">
+          <tr><th class="px-3 py-2.5">Fecha</th><th class="px-3 py-2.5">Acción</th><th class="px-3 py-2.5">Cuenta</th><th class="px-3 py-2.5">Cambio</th><th class="px-3 py-2.5">Quién</th></tr>
+        </thead>
         <tbody>
-          @for (a of filas(); track a.id) {
-            <tr class="border-t border-borde align-top">
-              <td class="whitespace-nowrap px-3 py-2">{{ fh(a.fecha) }}</td><td class="px-3 py-2 font-bold">{{ a.accion }}</td><td class="px-3 py-2">{{ a.email || a.uid }}</td>
-              <td class="px-3 py-2 font-mono">@for (c of cambios(a); track c) { <p>{{ c }}</p> }</td><td class="px-3 py-2">{{ a.actor }}</td>
-            </tr>
-          } @empty { <tr><td colspan="5" class="px-3 py-8 text-center text-slate-500">Sin cambios registrados.</td></tr> }
+          @if (cargando()) {
+            @for (i of [1, 2, 3, 4]; track i) {
+              <tr class="animate-pulse border-t border-borde"><td colspan="5" class="px-3 py-3"><div class="h-4 w-full rounded bg-slate-100"></div></td></tr>
+            }
+          } @else {
+            @for (a of filtradas(); track a.id) {
+              <tr class="border-t border-borde align-top hover:bg-slate-50/80">
+                <td class="whitespace-nowrap px-3 py-2.5 text-slate-500">{{ fh(a.fecha) }}</td>
+                <td class="px-3 py-2.5"><span class="insignia border-borde bg-fondo font-bold text-slate-800">{{ a.accion }}</span></td>
+                <td class="px-3 py-2.5 font-medium text-slate-800">{{ a.email || a.uid }}</td>
+                <td class="px-3 py-2.5 font-mono text-[11px] text-slate-600">@for (c of cambios(a); track c) { <p>{{ c }}</p> }</td>
+                <td class="px-3 py-2.5 text-slate-500">{{ a.actor }}</td>
+              </tr>
+            } @empty { <tr><td colspan="5" class="px-3 py-8 text-center text-slate-500">Sin cambios registrados.</td></tr> }
+          }
         </tbody>
       </table>
     </div>
@@ -182,8 +329,19 @@ export class Errores implements OnInit {
 export class Auditoria implements OnInit {
   private api = inject(Api);
   filas = signal<any[]>([]);
+  cargando = signal(true);
+  q = signal('');
+  filtradas = computed(() => {
+    const q = this.q().trim().toLowerCase();
+    if (!q) return this.filas();
+    return this.filas().filter((a) => [a.accion, a.email, a.uid, a.actor].some((v) => String(v || '').toLowerCase().includes(q)));
+  });
   fh = fechaHora;
-  async ngOnInit() { this.filas.set(await this.api.auditoria()); }
+  async ngOnInit() {
+    this.cargando.set(true);
+    try { this.filas.set(await this.api.auditoria()); }
+    finally { this.cargando.set(false); }
+  }
   cambios(a: any): string[] {
     if (!a.despues) return [];
     const antes = a.antes || {};
